@@ -1,7 +1,7 @@
 import { createPublicClient, http, parseAbiItem, type Address, formatUnits } from "viem";
 import { base, baseSepolia, mainnet, sepolia } from "viem/chains";
-import type { ChainId, Config } from "./config.ts";
-import { TOKEN_ADDRESSES } from "./config.ts";
+import type { ChainId, Config } from "./config.js";
+import { TOKEN_ADDRESSES } from "./config.js";
 
 /** ERC-20 Transfer event signature */
 const TRANSFER_EVENT = parseAbiItem(
@@ -437,12 +437,16 @@ export async function verifyTransfer(
 
 /**
  * Resolve a USD amount to a plan ID.
+ * Check order is load-bearing: byok and starter are both 5, so byok MUST be
+ * checked before starter — otherwise a $5 payment resolves to "starter"
+ * (the old bug's shape) instead of "byok" (#6101 §6).
  */
 export function resolveplan(amountUsd: number, prices: Config["prices"]): string | null {
   // Allow 1% tolerance for exchange rate variance
   const tolerance = 0.01;
   if (Math.abs(amountUsd - prices.max) / prices.max <= tolerance) return "max";
   if (Math.abs(amountUsd - prices.pro) / prices.pro <= tolerance) return "pro";
+  if (Math.abs(amountUsd - prices.byok) / prices.byok <= tolerance) return "byok";
   if (Math.abs(amountUsd - prices.starter) / prices.starter <= tolerance) return "starter";
   return null;
 }

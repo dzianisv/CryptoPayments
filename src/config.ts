@@ -1,9 +1,8 @@
 export interface Config {
   port: number;
-  /** Supabase project URL */
-  supabaseUrl: string;
-  /** Supabase service role key (bypasses RLS) */
-  supabaseKey: string;
+  /** Postgres connection string for the self-hosted CNPG Cluster (#6101).
+   *  Replaces the Supabase project URL + service-role key. */
+  databaseUrl: string;
   wallets: {
     base: string;
     eth: string;
@@ -21,6 +20,12 @@ export interface Config {
     eth_sepolia: string;
   };
   prices: {
+    /** Primary key: the byok plan id used everywhere else (bot PLANS, SPA ?plan=byok).
+     *  Sourced from PRICE_BYOK, falling back to PRICE_STARTER for the old env only;
+     *  the new deployment sets PRICE_BYOK=5 and does NOT set PRICE_STARTER. */
+    byok: number;
+    /** Backwards-compatible alias with the same value as byok, so the SPA
+     *  fallback `prices[plan] ?? prices.starter` can never again show a stale $10. */
     starter: number;
     pro: number;
     max: number;
@@ -48,8 +53,7 @@ const env = (key: string, fallback = ""): string => {
 export function loadConfig(): Config {
   return {
     port: Number(env("PORT")) || 3003,
-    supabaseUrl: env("SUPABASE_URL"),
-    supabaseKey: env("SUPABASE_SERVICE_ROLE_KEY"),
+    databaseUrl: env("DATABASE_URL"),
     wallets: {
       base: env("WALLET_BASE"),
       eth: env("WALLET_ETH"),
@@ -67,7 +71,11 @@ export function loadConfig(): Config {
       eth_sepolia: env("RPC_ETH_SEPOLIA", "https://rpc.sepolia.org"),
     },
     prices: {
-      starter: Number(env("PRICE_STARTER")) || 10,
+      // byok first: PRICE_BYOK=5 in the new deployment; PRICE_STARTER is only
+      // the fallback for the old env (which set PRICE_STARTER=10 by default).
+      // starter is emitted as an alias with the same value (see the type above).
+      byok: Number(env("PRICE_BYOK", env("PRICE_STARTER"))) || 5,
+      starter: Number(env("PRICE_BYOK", env("PRICE_STARTER"))) || 5,
       pro: Number(env("PRICE_PRO")) || 25,
       max: Number(env("PRICE_MAX")) || 100,
     },

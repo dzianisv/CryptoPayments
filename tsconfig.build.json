@@ -1,0 +1,11 @@
+{
+  // Build config for the Docker image (issue #6101). The repo's tsconfig.json
+  // is a type-check-only config (`noEmit: true` + `allowImportingTsExtensions`,
+  // which TS5096 forbids together with emit), so the image build uses this
+  // file instead of overriding flags on the command line.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "noEmit": false
+  }
+}

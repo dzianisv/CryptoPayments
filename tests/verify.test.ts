@@ -354,8 +354,7 @@ describe("verifyTransfer dispatcher", () => {
 function makeConfig(wallets?: Partial<Record<string, string>>) {
   return {
     port: 3003,
-    supabaseUrl: "https://test.supabase.co",
-    supabaseKey: "test-key",
+    databaseUrl: "postgresql://test:test@localhost:5432/test",
     wallets: {
       base: wallets?.base ?? "0xTestBaseWallet",
       eth: wallets?.eth ?? "0xTestEthWallet",
@@ -370,7 +369,7 @@ function makeConfig(wallets?: Partial<Record<string, string>>) {
       ton: "https://toncenter.com/api/v3",
       base_sepolia: "https://sepolia.base.org",
     },
-    prices: { starter: 10, pro: 25, max: 100 },
+    prices: { byok: 5, starter: 5, pro: 25, max: 100 },
     telegramBotToken: "",
     apiKey: "",
     callbackSecret: "",

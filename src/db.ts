@@ -1,8 +1,24 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+// ── Postgres access via `pg` (self-hosted CNPG Cluster, issue #6101) ─────────
+// Replaces @supabase/supabase-js (PostgREST). Same exported query functions,
+// same return shapes — only the transport changed. All SQL is parameterized;
+// no string-interpolated values ever reach the database.
+//
+// Type-shape note: node-postgres returns int8 as string and timestamptz as
+// Date by default, but the old PostgREST layer returned JSON numbers and ISO
+// timestamp strings. The two type parsers below restore the old shapes, so
+// every record type below stays exactly as it was.
+import pg from "pg";
+
+const { Pool } = pg;
+
+// int8 (block_number) → JS number (was a JSON number from PostgREST).
+pg.types.setTypeParser(pg.types.builtins.INT8, (v: string) => Number.parseInt(v, 10));
+// timestamptz → ISO-8601 string (was an ISO string from PostgREST).
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (v: string) => new Date(v).toISOString());
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type DB = SupabaseClient;
+export type DB = pg.Pool;
 
 export interface CustomerRecord {
   id: string;
@@ -147,6 +163,38 @@ function prefixedId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
+// ── Query helpers ────────────────────────────────────────────────────────────
+
+/** One row or null (the old `.single()` read path, which never threw on empty). */
+async function one<T>(db: DB, text: string, params: unknown[]): Promise<T | null> {
+  const { rows } = await db.query(text, params);
+  return (rows[0] as T | undefined) ?? null;
+}
+
+/** One row, throwing when the statement returns none (the old insert/update `.single()`).
+ *  Callers wrap the error with the "Failed to ..." prefix, as before. */
+async function oneOrThrow<T>(db: DB, text: string, params: unknown[]): Promise<T> {
+  const row = await one<T>(db, text, params);
+  if (!row) throw new Error("no row returned");
+  return row;
+}
+
+async function many<T>(db: DB, text: string, params: unknown[]): Promise<T[]> {
+  const { rows } = await db.query(text, params);
+  return rows as T[];
+}
+
+/** Build a `SET "col" = $n, ...` clause from a partial-update object. Keys are
+ *  code-controlled column names (never user input); values are parameterized. */
+function setClause(
+  updates: Record<string, unknown>,
+  startAt = 1,
+): { clause: string; values: unknown[] } {
+  const entries = Object.entries(updates);
+  const clause = entries.map(([col], i) => `"${col}" = $${startAt + i}`).join(", ");
+  return { clause, values: entries.map(([, v]) => v) };
+}
+
 // ── Stripe-ID → UUID resolver ────────────────────────────────────────────────
 
 const STRIPE_PREFIX_TABLE: Record<string, string> = {
@@ -165,14 +213,24 @@ async function resolveToUuid(db: DB, id: string | null | undefined): Promise<str
   const prefix = Object.keys(STRIPE_PREFIX_TABLE).find((p) => id.startsWith(p));
   if (!prefix) return id; // Already a UUID
   const table = STRIPE_PREFIX_TABLE[prefix];
-  const { data } = await db.from(table).select("id").eq("stripe_id", id).single();
-  return data?.id ?? null;
+  const row = await one<{ id: string }>(db, `SELECT "id" FROM "${table}" WHERE "stripe_id" = $1`, [id]);
+  return row?.id ?? null;
 }
 
 // ── Database client ──────────────────────────────────────────────────────────
 
-export function createDB(supabaseUrl: string, supabaseKey: string): DB {
-  return createClient(supabaseUrl, supabaseKey);
+export function createDB(databaseUrl: string): DB {
+  return new Pool({ connectionString: databaseUrl });
+}
+
+/** Liveness probe for the /api/health handler: true iff the DB answers. */
+export async function pingDb(db: DB): Promise<boolean> {
+  try {
+    await db.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Customers ────────────────────────────────────────────────────────────────
@@ -183,31 +241,29 @@ export async function getOrCreateCustomer(
   uid: string,
 ): Promise<CustomerRecord> {
   // Try to find existing customer
-  const { data: existing } = await db
-    .from("customers")
-    .select("*")
-    .eq("id_type", idType)
-    .eq("uid", uid)
-    .single();
-
-  if (existing) return existing as CustomerRecord;
+  const existing = await one<CustomerRecord>(
+    db,
+    `SELECT * FROM "customers" WHERE "id_type" = $1 AND "uid" = $2`,
+    [idType, uid],
+  );
+  if (existing) return existing;
 
   // Create new customer
-  const { data, error } = await db
-    .from("customers")
-    .insert({ id_type: idType, uid, stripe_id: prefixedId("cus") })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to create customer: ${error.message}`);
-  return data as CustomerRecord;
+  try {
+    return await oneOrThrow<CustomerRecord>(
+      db,
+      `INSERT INTO "customers" ("id_type", "uid", "stripe_id") VALUES ($1, $2, $3) RETURNING *`,
+      [idType, uid, prefixedId("cus")]
+    );
+  } catch (err) {
+    throw new Error(`Failed to create customer: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function getCustomerById(db: DB, id: string): Promise<CustomerRecord | null> {
   // Support both UUID and stripe_id (cus_...)
   const column = id.startsWith("cus_") ? "stripe_id" : "id";
-  const { data } = await db.from("customers").select("*").eq(column, id).single();
-  return (data as CustomerRecord) ?? null;
+  return one<CustomerRecord>(db, `SELECT * FROM "customers" WHERE "${column}" = $1`, [id]);
 }
 
 export async function updateCustomer(
@@ -216,9 +272,17 @@ export async function updateCustomer(
   updates: { name?: string; email?: string; metadata?: Record<string, unknown> },
 ): Promise<CustomerRecord | null> {
   const column = id.startsWith("cus_") ? "stripe_id" : "id";
-  const { data, error } = await db.from("customers").update(updates).eq(column, id).select("*").single();
-  if (error) throw new Error(`Failed to update customer: ${error.message}`);
-  return (data as CustomerRecord) ?? null;
+  const { clause, values } = setClause(updates as Record<string, unknown>);
+  if (!clause) return getCustomerById(db, id);
+  try {
+    return await oneOrThrow<CustomerRecord>(
+      db,
+      `UPDATE "customers" SET ${clause} WHERE "${column}" = $${values.length + 1} RETURNING *`,
+      [...values, id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to update customer: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function listCustomers(
@@ -227,12 +291,11 @@ export async function listCustomers(
 ): Promise<CustomerRecord[]> {
   const limit = opts.limit ?? 10;
   const offset = opts.offset ?? 0;
-  const { data } = await db
-    .from("customers")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-  return (data as CustomerRecord[]) ?? [];
+  return many<CustomerRecord>(
+    db,
+    `SELECT * FROM "customers" ORDER BY "created_at" DESC LIMIT $1 OFFSET $2`,
+    [limit, offset],
+  );
 }
 
 // ── Invoices ─────────────────────────────────────────────────────────────────
@@ -248,28 +311,29 @@ export async function createInvoice(
     dueDate?: string;
   },
 ): Promise<InvoiceRecord> {
-  const { data, error } = await db
-    .from("invoices")
-    .insert({
-      stripe_id: prefixedId("inv"),
-      customer_id: input.customerId,
-      plan_id: input.planId ?? null,
-      description: input.description ?? null,
-      footer: input.footer ?? null,
-      metadata: input.metadata ?? {},
-      due_date: input.dueDate ?? null,
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to create invoice: ${error.message}`);
-  return data as InvoiceRecord;
+  try {
+    return await oneOrThrow<InvoiceRecord>(
+      db,
+      `INSERT INTO "invoices" ("stripe_id", "customer_id", "plan_id", "description", "footer", "metadata", "due_date")
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        prefixedId("inv"),
+        input.customerId,
+        input.planId ?? null,
+        input.description ?? null,
+        input.footer ?? null,
+        input.metadata ?? {},
+        input.dueDate ?? null,
+      ]
+    );
+  } catch (err) {
+    throw new Error(`Failed to create invoice: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function getInvoiceById(db: DB, id: string): Promise<InvoiceRecord | null> {
   const column = id.startsWith("inv_") ? "stripe_id" : "id";
-  const { data } = await db.from("invoices").select("*").eq(column, id).single();
-  return (data as InvoiceRecord) ?? null;
+  return one<InvoiceRecord>(db, `SELECT * FROM "invoices" WHERE "${column}" = $1`, [id]);
 }
 
 export async function getInvoiceWithLineItems(
@@ -277,15 +341,18 @@ export async function getInvoiceWithLineItems(
   id: string,
 ): Promise<(InvoiceRecord & { line_items: InvoiceLineItemRecord[] }) | null> {
   const column = id.startsWith("inv_") ? "stripe_id" : "id";
-  const { data } = await db
-    .from("invoices")
-    .select("*, invoice_line_items(*)")
-    .eq(column, id)
-    .single();
-
-  if (!data) return null;
-  const { invoice_line_items, ...invoice } = data as InvoiceRecord & { invoice_line_items: InvoiceLineItemRecord[] };
-  return { ...invoice, line_items: invoice_line_items ?? [] };
+  const invoice = await one<InvoiceRecord>(
+    db,
+    `SELECT * FROM "invoices" WHERE "${column}" = $1`,
+    [id],
+  );
+  if (!invoice) return null;
+  const lineItems = await many<InvoiceLineItemRecord>(
+    db,
+    `SELECT * FROM "invoice_line_items" WHERE "invoice_id" = $1 ORDER BY "created_at" ASC`,
+    [invoice.id],
+  );
+  return { ...invoice, line_items: lineItems };
 }
 
 export async function listInvoices(
@@ -294,13 +361,23 @@ export async function listInvoices(
 ): Promise<InvoiceRecord[]> {
   const limit = opts.limit ?? 10;
   const offset = opts.offset ?? 0;
-  let query = db.from("invoices").select("*").order("created_at", { ascending: false });
-
-  if (opts.customerId) query = query.eq("customer_id", opts.customerId);
-  if (opts.status) query = query.eq("status", opts.status);
-
-  const { data } = await query.range(offset, offset + limit - 1);
-  return (data as InvoiceRecord[]) ?? [];
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  if (opts.customerId) {
+    values.push(opts.customerId);
+    conditions.push(`"customer_id" = $${values.length}`);
+  }
+  if (opts.status) {
+    values.push(opts.status);
+    conditions.push(`"status" = $${values.length}`);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  values.push(limit, offset);
+  return many<InvoiceRecord>(
+    db,
+    `SELECT * FROM "invoices" ${where} ORDER BY "created_at" DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values,
+  );
 }
 
 export async function addInvoiceLineItem(
@@ -313,47 +390,45 @@ export async function addInvoiceLineItem(
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.status !== "draft") throw new Error("Can only add line items to draft invoices");
 
-  const { data, error } = await db
-    .from("invoice_line_items")
-    .insert({
-      stripe_id: prefixedId("il"),
-      invoice_id: invoice.id,
-      description: item.description,
-      amount: item.amount,
-      quantity: item.quantity ?? 1,
-      metadata: item.metadata ?? {},
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to add line item: ${error.message}`);
+  let lineItem: InvoiceLineItemRecord;
+  try {
+    lineItem = await oneOrThrow<InvoiceLineItemRecord>(
+      db,
+      `INSERT INTO "invoice_line_items" ("stripe_id", "invoice_id", "description", "amount", "quantity", "metadata")
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [
+        prefixedId("il"),
+        invoice.id,
+        item.description,
+        item.amount,
+        item.quantity ?? 1,
+        item.metadata ?? {},
+      ]
+    );
+  } catch (err) {
+    throw new Error(`Failed to add line item: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Recalculate invoice totals
   await recalculateInvoiceTotals(db, invoice.id);
 
-  return data as InvoiceLineItemRecord;
+  return lineItem;
 }
 
 async function recalculateInvoiceTotals(db: DB, invoiceId: string): Promise<void> {
-  const { data: items } = await db
-    .from("invoice_line_items")
-    .select("amount, quantity")
-    .eq("invoice_id", invoiceId);
-
-  const subtotal = (items ?? []).reduce(
-    (sum: number, item: { amount: number; quantity: number }) => sum + item.amount * item.quantity,
-    0,
+  const items = await many<{ amount: number; quantity: number }>(
+    db,
+    `SELECT "amount", "quantity" FROM "invoice_line_items" WHERE "invoice_id" = $1`,
+    [invoiceId],
   );
+
+  const subtotal = items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
   const total = subtotal; // No tax for crypto payments
 
-  await db
-    .from("invoices")
-    .update({
-      subtotal,
-      total,
-      amount_remaining: total,
-    })
-    .eq("id", invoiceId);
+  await db.query(
+    `UPDATE "invoices" SET "subtotal" = $1, "total" = $2, "amount_remaining" = $3 WHERE "id" = $4`,
+    [subtotal, total, total, invoiceId],
+  );
 }
 
 export async function finalizeInvoice(db: DB, invoiceId: string): Promise<InvoiceRecord> {
@@ -361,15 +436,15 @@ export async function finalizeInvoice(db: DB, invoiceId: string): Promise<Invoic
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.status !== "draft") throw new Error("Can only finalize draft invoices");
 
-  const { data, error } = await db
-    .from("invoices")
-    .update({ status: "open" })
-    .eq("id", invoice.id)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to finalize invoice: ${error.message}`);
-  return data as InvoiceRecord;
+  try {
+    return await oneOrThrow<InvoiceRecord>(
+      db,
+      `UPDATE "invoices" SET "status" = 'open' WHERE "id" = $1 RETURNING *`,
+      [invoice.id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to finalize invoice: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function voidInvoice(db: DB, invoiceId: string): Promise<InvoiceRecord> {
@@ -377,15 +452,15 @@ export async function voidInvoice(db: DB, invoiceId: string): Promise<InvoiceRec
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.status !== "open") throw new Error("Can only void open invoices");
 
-  const { data, error } = await db
-    .from("invoices")
-    .update({ status: "void", voided_at: new Date().toISOString() })
-    .eq("id", invoice.id)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to void invoice: ${error.message}`);
-  return data as InvoiceRecord;
+  try {
+    return await oneOrThrow<InvoiceRecord>(
+      db,
+      `UPDATE "invoices" SET "status" = 'void', "voided_at" = $1 WHERE "id" = $2 RETURNING *`,
+      [new Date().toISOString(), invoice.id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to void invoice: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function markInvoicePaid(
@@ -396,21 +471,16 @@ export async function markInvoicePaid(
   const invoice = await getInvoiceById(db, invoiceId);
   if (!invoice) throw new Error("Invoice not found");
 
-  const { data, error } = await db
-    .from("invoices")
-    .update({
-      status: "paid",
-      paid_at: new Date().toISOString(),
-      payment_intent_id: paymentIntentId,
-      amount_paid: invoice.total,
-      amount_remaining: 0,
-    })
-    .eq("id", invoice.id)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to mark invoice paid: ${error.message}`);
-  return data as InvoiceRecord;
+  try {
+    return await oneOrThrow<InvoiceRecord>(
+      db,
+      `UPDATE "invoices" SET "status" = 'paid', "paid_at" = $1, "payment_intent_id" = $2,
+        "amount_paid" = $3, "amount_remaining" = 0 WHERE "id" = $4 RETURNING *`,
+      [new Date().toISOString(), paymentIntentId, invoice.total, invoice.id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to mark invoice paid: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ── Payment Intents ──────────────────────────────────────────────────────────
@@ -432,30 +502,31 @@ export async function createPaymentIntent(
   const customerId = await resolveToUuid(db, input.customerId);
   const invoiceId = await resolveToUuid(db, input.invoiceId);
 
-  const { data, error } = await db
-    .from("payment_intents")
-    .insert({
-      stripe_id: prefixedId("pi"),
-      customer_id: customerId,
-      invoice_id: invoiceId,
-      amount: input.amount,
-      chain_id: input.chainId ?? null,
-      token: input.token ?? null,
-      plan_id: input.planId ?? null,
-      description: input.description ?? null,
-      metadata: input.metadata ?? {},
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to create payment intent: ${error.message}`);
-  return data as PaymentIntentRecord;
+  try {
+    return await oneOrThrow<PaymentIntentRecord>(
+      db,
+      `INSERT INTO "payment_intents" ("stripe_id", "customer_id", "invoice_id", "amount", "chain_id", "token", "plan_id", "description", "metadata")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        prefixedId("pi"),
+        customerId,
+        invoiceId,
+        input.amount,
+        input.chainId ?? null,
+        input.token ?? null,
+        input.planId ?? null,
+        input.description ?? null,
+        input.metadata ?? {},
+      ]
+    );
+  } catch (err) {
+    throw new Error(`Failed to create payment intent: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function getPaymentIntentById(db: DB, id: string): Promise<PaymentIntentRecord | null> {
   const column = id.startsWith("pi_") ? "stripe_id" : "id";
-  const { data } = await db.from("payment_intents").select("*").eq(column, id).single();
-  return (data as PaymentIntentRecord) ?? null;
+  return one<PaymentIntentRecord>(db, `SELECT * FROM "payment_intents" WHERE "${column}" = $1`, [id]);
 }
 
 export async function getPaymentIntentByTx(
@@ -463,13 +534,11 @@ export async function getPaymentIntentByTx(
   txHash: string,
   chainId: string,
 ): Promise<PaymentIntentRecord | null> {
-  const { data } = await db
-    .from("payment_intents")
-    .select("*")
-    .eq("tx_hash", txHash)
-    .eq("chain_id", chainId)
-    .single();
-  return (data as PaymentIntentRecord) ?? null;
+  return one<PaymentIntentRecord>(
+    db,
+    `SELECT * FROM "payment_intents" WHERE "tx_hash" = $1 AND "chain_id" = $2`,
+    [txHash, chainId],
+  );
 }
 
 export async function listPaymentIntents(
@@ -478,13 +547,23 @@ export async function listPaymentIntents(
 ): Promise<PaymentIntentRecord[]> {
   const limit = opts.limit ?? 10;
   const offset = opts.offset ?? 0;
-  let query = db.from("payment_intents").select("*").order("created_at", { ascending: false });
-
-  if (opts.customerId) query = query.eq("customer_id", opts.customerId);
-  if (opts.status) query = query.eq("status", opts.status);
-
-  const { data } = await query.range(offset, offset + limit - 1);
-  return (data as PaymentIntentRecord[]) ?? [];
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  if (opts.customerId) {
+    values.push(opts.customerId);
+    conditions.push(`"customer_id" = $${values.length}`);
+  }
+  if (opts.status) {
+    values.push(opts.status);
+    conditions.push(`"status" = $${values.length}`);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  values.push(limit, offset);
+  return many<PaymentIntentRecord>(
+    db,
+    `SELECT * FROM "payment_intents" ${where} ORDER BY "created_at" DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values,
+  );
 }
 
 export async function updatePaymentIntentStatus(
@@ -515,15 +594,16 @@ export async function updatePaymentIntentStatus(
   if (status === "canceled") updates.canceled_at = new Date().toISOString();
 
   const column = id.startsWith("pi_") ? "stripe_id" : "id";
-  const { data, error } = await db
-    .from("payment_intents")
-    .update(updates)
-    .eq(column, id)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to update payment intent: ${error.message}`);
-  return data as PaymentIntentRecord;
+  const { clause, values } = setClause(updates);
+  try {
+    return await oneOrThrow<PaymentIntentRecord>(
+      db,
+      `UPDATE "payment_intents" SET ${clause} WHERE "${column}" = $${values.length + 1} RETURNING *`,
+      [...values, id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to update payment intent: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ── Checkout Sessions ────────────────────────────────────────────────────────
@@ -553,34 +633,35 @@ export async function createCheckoutSession(
   const invoiceId = await resolveToUuid(db, input.invoiceId);
   const paymentIntentId = await resolveToUuid(db, input.paymentIntentId);
 
-  const { data, error } = await db
-    .from("checkout_sessions")
-    .insert({
-      stripe_id: stripeId,
-      status: "open",
-      customer_id: customerId,
-      invoice_id: invoiceId,
-      payment_intent_id: paymentIntentId,
-      plan_id: input.planId ?? null,
-      amount: input.amount,
-      success_url: input.successUrl ?? null,
-      cancel_url: input.cancelUrl ?? null,
-      callback_url: input.callbackUrl ?? null,
-      url,
-      expires_at: expiresAt,
-      metadata: input.metadata ?? {},
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to create checkout session: ${error.message}`);
-  return data as CheckoutSessionRecord;
+  try {
+    return await oneOrThrow<CheckoutSessionRecord>(
+      db,
+      `INSERT INTO "checkout_sessions" ("stripe_id", "status", "customer_id", "invoice_id", "payment_intent_id",
+        "plan_id", "amount", "success_url", "cancel_url", "callback_url", "url", "expires_at", "metadata")
+       VALUES ($1, 'open', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [
+        stripeId,
+        customerId,
+        invoiceId,
+        paymentIntentId,
+        input.planId ?? null,
+        input.amount,
+        input.successUrl ?? null,
+        input.cancelUrl ?? null,
+        input.callbackUrl ?? null,
+        url,
+        expiresAt,
+        input.metadata ?? {},
+      ]
+    );
+  } catch (err) {
+    throw new Error(`Failed to create checkout session: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function getCheckoutSessionById(db: DB, id: string): Promise<CheckoutSessionRecord | null> {
   const column = id.startsWith("cs_") ? "stripe_id" : "id";
-  const { data } = await db.from("checkout_sessions").select("*").eq(column, id).single();
-  return (data as CheckoutSessionRecord) ?? null;
+  return one<CheckoutSessionRecord>(db, `SELECT * FROM "checkout_sessions" WHERE "${column}" = $1`, [id]);
 }
 
 export async function completeCheckoutSession(
@@ -590,19 +671,16 @@ export async function completeCheckoutSession(
 ): Promise<CheckoutSessionRecord> {
   const column = id.startsWith("cs_") ? "stripe_id" : "id";
   const resolvedPiId = await resolveToUuid(db, paymentIntentId);
-  const { data, error } = await db
-    .from("checkout_sessions")
-    .update({
-      status: "complete",
-      payment_intent_id: resolvedPiId,
-      completed_at: new Date().toISOString(),
-    })
-    .eq(column, id)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to complete checkout session: ${error.message}`);
-  return data as CheckoutSessionRecord;
+  try {
+    return await oneOrThrow<CheckoutSessionRecord>(
+      db,
+      `UPDATE "checkout_sessions" SET "status" = 'complete', "payment_intent_id" = $1, "completed_at" = $2
+       WHERE "${column}" = $3 RETURNING *`,
+      [resolvedPiId, new Date().toISOString(), id]
+    );
+  } catch (err) {
+    throw new Error(`Failed to complete checkout session: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ── Webhook Events ───────────────────────────────────────────────────────────
@@ -612,18 +690,15 @@ export async function createWebhookEvent(
   type: string,
   eventData: Record<string, unknown>,
 ): Promise<WebhookEventRecord> {
-  const { data, error } = await db
-    .from("webhook_events")
-    .insert({
-      stripe_id: prefixedId("evt"),
-      type,
-      data: eventData,
-    })
-    .select("*")
-    .single();
-
-  if (error) throw new Error(`Failed to create webhook event: ${error.message}`);
-  return data as WebhookEventRecord;
+  try {
+    return await oneOrThrow<WebhookEventRecord>(
+      db,
+      `INSERT INTO "webhook_events" ("stripe_id", "type", "data") VALUES ($1, $2, $3) RETURNING *`,
+      [prefixedId("evt"), type, eventData]
+    );
+  } catch (err) {
+    throw new Error(`Failed to create webhook event: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function markEventDelivered(
@@ -642,7 +717,11 @@ export async function markEventDelivered(
     updates.delivered_at = new Date().toISOString();
   }
 
-  await db.from("webhook_events").update(updates).eq("id", eventId);
+  const { clause, values } = setClause(updates);
+  await db.query(
+    `UPDATE "webhook_events" SET ${clause} WHERE "id" = $${values.length + 1}`,
+    [...values, eventId],
+  );
 }
 
 export async function listWebhookEvents(
@@ -651,12 +730,19 @@ export async function listWebhookEvents(
 ): Promise<WebhookEventRecord[]> {
   const limit = opts.limit ?? 10;
   const offset = opts.offset ?? 0;
-  let query = db.from("webhook_events").select("*").order("created_at", { ascending: false });
-
-  if (opts.type) query = query.eq("type", opts.type);
-
-  const { data } = await query.range(offset, offset + limit - 1);
-  return (data as WebhookEventRecord[]) ?? [];
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  if (opts.type) {
+    values.push(opts.type);
+    conditions.push(`"type" = $${values.length}`);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  values.push(limit, offset);
+  return many<WebhookEventRecord>(
+    db,
+    `SELECT * FROM "webhook_events" ${where} ORDER BY "created_at" DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values,
+  );
 }
 
 // ── Legacy compatibility layer ───────────────────────────────────────────────
@@ -680,16 +766,11 @@ export async function insertPayment(db: DB, p: InsertPayment): Promise<PaymentRe
 
   // Set tx_hash and metadata directly
   if (p.txHash) {
-    await db
-      .from("payment_intents")
-      .update({
-        tx_hash: p.txHash,
-        from_address: p.fromAddress ?? null,
-        to_address: p.toAddress ?? null,
-        block_number: p.blockNumber ?? null,
-        amount_raw: p.amountRaw,
-      })
-      .eq("id", pi.id);
+    await db.query(
+      `UPDATE "payment_intents" SET "tx_hash" = $1, "from_address" = $2, "to_address" = $3,
+        "block_number" = $4, "amount_raw" = $5 WHERE "id" = $6`,
+      [p.txHash, p.fromAddress ?? null, p.toAddress ?? null, p.blockNumber ?? null, p.amountRaw, pi.id],
+    );
   }
 
   return piToPaymentRecord(
@@ -715,17 +796,15 @@ export async function getPaymentByTx(db: DB, txHash: string, chainId: string): P
 }
 
 export async function getPaymentsByUser(db: DB, idType: string, uid: string): Promise<PaymentRecord[]> {
-  const { data: customer } = await db
-    .from("customers")
-    .select("*")
-    .eq("id_type", idType)
-    .eq("uid", uid)
-    .single();
-
+  const customer = await one<CustomerRecord>(
+    db,
+    `SELECT * FROM "customers" WHERE "id_type" = $1 AND "uid" = $2`,
+    [idType, uid],
+  );
   if (!customer) return [];
 
   const pis = await listPaymentIntents(db, { customerId: customer.id, limit: 100 });
-  return pis.map((pi) => piToPaymentRecord(pi, customer as CustomerRecord));
+  return pis.map((pi) => piToPaymentRecord(pi, customer));
 }
 
 export async function markPaymentVerified(
@@ -742,10 +821,11 @@ export async function markPaymentVerified(
   });
 
   // Update amount in cents
-  await db
-    .from("payment_intents")
-    .update({ amount: Math.round(details.amountUsd * 100) })
-    .eq(id.startsWith("pi_") ? "stripe_id" : "id", id);
+  const column = id.startsWith("pi_") ? "stripe_id" : "id";
+  await db.query(
+    `UPDATE "payment_intents" SET "amount" = $1 WHERE "${column}" = $2`,
+    [Math.round(details.amountUsd * 100), id],
+  );
 }
 
 export async function markPaymentFailed(db: DB, id: string): Promise<void> {
