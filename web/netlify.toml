@@ -1,0 +1,24 @@
+# Netlify configuration for the payment SPA (static export in web/out).
+# The build runs in GitHub Actions; Netlify is only the host — no [build] section.
+# Translated from the old Azure staticwebapp.config.json (deleted with the Azure move).
+# Netlify serves out/404.html automatically for genuine 404s (it is in the publish dir).
+
+[[redirects]]
+  from = "/pay"
+  to = "/pay.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "ALLOW-FROM https://web.telegram.org"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export", // Static export for Azure Static Web Apps
+  output: "export", // Static export
   images: { unoptimized: true },
 };
 
