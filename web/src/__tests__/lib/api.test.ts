@@ -29,7 +29,13 @@ describe("API client", () => {
       });
 
       const config = await fetchConfig();
-      expect(mockFetch).toHaveBeenCalledWith(`${API_BASE}/api/config`);
+      // #6072 (b): fetchConfig now bounds the request with AbortSignal.timeout
+      // (10s) — the signal is part of the call shape, asserted here so the
+      // bound cannot silently regress to an unbounded fetch.
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${API_BASE}/api/config`,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(config).toEqual(mockConfig);
     });
 
