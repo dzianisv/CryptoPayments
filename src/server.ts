@@ -1,9 +1,10 @@
 import { Hono, type Context } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cors } from "hono/cors";
-import { loadConfig, type ChainId, type TokenId, TOKEN_ADDRESSES } from "./config.ts";
+import { loadConfig, type ChainId, type TokenId, TOKEN_ADDRESSES } from "./config.js";
 import {
   createDB,
+  pingDb,
   type DB,
   // Legacy compat
   insertPayment,
@@ -34,12 +35,12 @@ import {
   listWebhookEvents,
   createWebhookEvent,
   type PaymentRecord,
-} from "./db.ts";
-import { verifyTransfer, resolveplan } from "./verify.ts";
-import { verifyTelegramInitData } from "./telegram.ts";
+} from "./db.js";
+import { verifyTransfer, resolveplan } from "./verify.js";
+import { verifyTelegramInitData } from "./telegram.js";
 
 const config = loadConfig();
-const db = createDB(config.supabaseUrl, config.supabaseKey);
+const db = createDB(config.databaseUrl);
 
 // ── App factory (for testing) ────────────────────────────────────────────────
 
@@ -113,10 +114,17 @@ export function createApp(injectedDb?: DB) {
   // ══════════════════════════════════════════════════════════════════════════
 
   // ── Health ──────────────────────────────────────────────────────────────────
+  // DB ping: Traefik must never route to a pod that 500s every DB call (#6101 §3).
+  // Liveness stays process-only (a DB outage must NOT crash-loop the pod) — the
+  // livenessProbe is a tcpSocket; only this readiness signal carries the DB.
 
-  app.get("/api/health", (c) =>
-    c.json({ ok: true, chains: ["base", "eth", "ton", "sol", "base_sepolia", "eth_sepolia"], tokens: ["usdt", "usdc"] }),
-  );
+  app.get("/api/health", async (c) => {
+    const dbOk = await pingDb(appDb);
+    if (!dbOk) {
+      return c.json({ ok: false, error: "database unreachable" }, 503);
+    }
+    return c.json({ ok: true, chains: ["base", "eth", "ton", "sol", "base_sepolia", "eth_sepolia"], tokens: ["usdt", "usdc"] });
+  });
 
   // ── Public config ──────────────────────────────────────────────────────────
 

@@ -1,0 +1,25 @@
+# CryptoPayments — pnpm workspace settings (issue #6101).
+#
+# `packages` lists both workspace members: the API (`.`) and the payment
+# SPA (`web`). Both must be listed: with only `'.'`, a `pnpm install` run
+# from `web/` resolves the workspace root and installs only the root
+# package's deps, so `web/node_modules` is never created (issue #6101 F2).
+# pnpm 9 errors ("packages field missing or empty") on a
+# pnpm-workspace.yaml with no `packages` key, and CI's build-and-test job
+# still runs pnpm 9 — so the key must stay.
+packages:
+  - '.'
+  - 'web'
+
+# allowBuilds is the pnpm 10+ home of the build-script allowlist (it
+# replaces the `pnpm.onlyBuiltDependencies` field in package.json, which
+# pnpm 12 no longer reads at all — the Docker image builds with corepack's
+# default pnpm, currently 12.x, and fails the install with
+# ERR_PNPM_IGNORED_BUILDS when any of these three is unreviewed).
+# The package.json field is KEPT alongside this file: CI's build-and-test
+# job still runs pnpm 9, which reads the field and does not know allowBuilds.
+# Both lists name the same three packages — keep them in sync.
+allowBuilds:
+  bufferutil: true
+  utf-8-validate: true
+  esbuild: true

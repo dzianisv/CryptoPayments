@@ -1,4 +1,4 @@
-name: Deploy payment SPA to Azure Static Web Apps
+name: Deploy payment SPA to Netlify
 
 on:
   push:
@@ -6,11 +6,14 @@ on:
       - main
     paths:
       - "web/**"
+      - "pnpm-lock.yaml"
   pull_request:
     branches:
       - main
     paths:
       - "web/**"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34,7 +37,7 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -44,15 +47,9 @@ jobs:
         run: pnpm build
         working-directory: web
 
-      - name: Copy staticwebapp.config.json to output
-        run: cp staticwebapp.config.json out/
+      - name: Deploy to Netlify
+        run: npx -y netlify-cli@latest deploy --dir=out --prod
         working-directory: web
-
-      - name: Deploy to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_PAY_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: "upload"
-          skip_app_build: true
-          app_location: "web/out"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}

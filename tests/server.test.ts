@@ -3,8 +3,7 @@ import { createHmac } from "node:crypto";
 import type { DB, PaymentRecord } from "../src/db.js";
 
 // ── Env vars must be set BEFORE importing server.ts ──────────────────────────
-process.env.SUPABASE_URL = "https://test.supabase.co";
-process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 process.env.API_KEY = "test-api-key";
 process.env.CALLBACK_SECRET = "test-callback-secret";
 process.env.CHECKOUT_SECRET = "test-callback-secret";
@@ -33,182 +32,11 @@ vi.mock("../src/verify.js", async (importOriginal) => {
   };
 });
 
-// ── Mock Supabase client (in-memory) ─────────────────────────────────────────
+// ── Mock pg Pool (in-memory) ─────────────────────────────────────────────────
+// The db layer issues parameterized SQL against a `pg` Pool; the fake Pool in
+// ./mock-pool.js answers those statements from in-memory tables.
 
-function createMockSupabase(): DB {
-  const stores: Record<string, Record<string, unknown>[]> = {
-    customers: [],
-    payment_intents: [],
-    invoices: [],
-    invoice_line_items: [],
-    checkout_sessions: [],
-    webhook_events: [],
-  };
-
-  let idCounter = 0;
-
-  function makeChain(tableName: string) {
-    let table = stores[tableName] ?? [];
-    let filters: Array<{ col: string; val: unknown }> = [];
-    let isSingle = false;
-    let isInsert = false;
-    let isUpdate = false;
-    let isSelect = false;
-    let insertData: Record<string, unknown> | null = null;
-    let updateData: Record<string, unknown> | null = null;
-    let ordering: { col: string; ascending: boolean } | null = null;
-    let rangeStart = 0;
-    let rangeEnd = Infinity;
-
-    const chain: any = {
-      select(_cols: string = "*") {
-        isSelect = true;
-        return chain;
-      },
-      insert(data: Record<string, unknown>) {
-        isInsert = true;
-        insertData = {
-          id: `uuid-${++idCounter}`,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          ...data,
-        };
-        return chain;
-      },
-      update(data: Record<string, unknown>) {
-        isUpdate = true;
-        updateData = data;
-        return chain;
-      },
-      eq(col: string, val: unknown) {
-        filters.push({ col, val });
-        return chain;
-      },
-      order(col: string, opts?: { ascending?: boolean }) {
-        ordering = { col, ascending: opts?.ascending ?? true };
-        return chain;
-      },
-      range(start: number, end: number) {
-        rangeStart = start;
-        rangeEnd = end;
-        return chain;
-      },
-      single() {
-        isSingle = true;
-        return chain;
-      },
-      then(resolve: (val: any) => void, reject?: (err: any) => void) {
-        try {
-          let result: any;
-
-          if (isInsert && insertData) {
-            // Unique constraint: payment_intents (tx_hash + chain_id)
-            if (tableName === "payment_intents" && insertData.tx_hash) {
-              const dup = table.find(
-                (r: any) =>
-                  r.tx_hash === insertData!.tx_hash &&
-                  r.chain_id === insertData!.chain_id,
-              );
-              if (dup) {
-                return resolve({
-                  data: null,
-                  error: {
-                    message:
-                      "duplicate key value violates unique constraint",
-                  },
-                });
-              }
-            }
-            // Unique constraint: customers (id_type + uid)
-            if (tableName === "customers" && insertData.id_type) {
-              const dup = table.find(
-                (r: any) =>
-                  r.id_type === insertData!.id_type &&
-                  r.uid === insertData!.uid,
-              );
-              if (dup) {
-                return resolve({
-                  data: null,
-                  error: {
-                    message:
-                      "duplicate key value violates unique constraint",
-                  },
-                });
-              }
-            }
-            table.push(insertData);
-            stores[tableName] = table;
-            result = {
-              data: isSelect ? { ...insertData } : null,
-              error: null,
-            };
-          } else if (isUpdate && updateData) {
-            let matched = table;
-            for (const f of filters) {
-              matched = matched.filter((r: any) => r[f.col] === f.val);
-            }
-            for (const row of matched) {
-              Object.assign(row, updateData, {
-                updated_at: new Date().toISOString(),
-              });
-            }
-            result = {
-              data: isSelect
-                ? isSingle
-                  ? matched[0] ?? null
-                  : matched
-                : null,
-              error: null,
-            };
-          } else {
-            // Select query
-            let matched = table;
-            for (const f of filters) {
-              matched = matched.filter((r: any) => r[f.col] === f.val);
-            }
-            if (ordering) {
-              matched.sort((a: any, b: any) => {
-                const aVal = a[ordering!.col];
-                const bVal = b[ordering!.col];
-                return ordering!.ascending
-                  ? aVal > bVal
-                    ? 1
-                    : -1
-                  : aVal < bVal
-                    ? 1
-                    : -1;
-              });
-            }
-            matched = matched.slice(rangeStart, rangeEnd + 1);
-
-            if (isSingle) {
-              result = {
-                data: matched[0] ?? null,
-                error:
-                  matched.length === 0 ? { code: "PGRST116" } : null,
-              };
-            } else {
-              result = { data: matched, error: null };
-            }
-          }
-
-          resolve(result);
-        } catch (err) {
-          if (reject) reject(err);
-          else resolve({ data: null, error: { message: String(err) } });
-        }
-      },
-    };
-
-    return chain;
-  }
-
-  return {
-    from(tableName: string) {
-      return makeChain(tableName);
-    },
-  } as unknown as DB;
-}
+import { createMockPool } from "./mock-pool.js";
 
 // ── Import after env + mocks are set ─────────────────────────────────────────
 const { createApp } = await import("../src/server.js");
@@ -239,7 +67,7 @@ describe("Server API", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb = createMockSupabase();
+    mockDb = createMockPool();
     app = createApp(mockDb);
   });
 
@@ -276,7 +104,8 @@ describe("Server API", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.wallets).toBeDefined();
-      expect(body.prices.starter).toBe(10);
+      expect(body.prices.byok).toBe(5);
+      expect(body.prices.starter).toBe(5);
       expect(body.prices.pro).toBe(25);
       expect(body.prices.max).toBe(100);
       expect(body.chains).toEqual(["base", "eth", "ton", "sol", "base_sepolia", "eth_sepolia"]);
@@ -390,8 +219,8 @@ describe("Server API", () => {
       mockedVerifyTransfer.mockResolvedValueOnce({
         from: "0xSender",
         to: "0xTestBaseWallet",
-        amountRaw: "10000000",
-        amountUsd: 10,
+        amountRaw: "5000000",
+        amountUsd: 5,
         token: "usdc",
         blockNumber: 12345,
         txHash: "0xvalidtx1",
@@ -406,7 +235,7 @@ describe("Server API", () => {
           token: "usdc",
           idType: "tg",
           uid: "42",
-          plan: "starter",
+          plan: "byok",
           apiKey: "test-api-key",
         }),
       });
@@ -414,8 +243,8 @@ describe("Server API", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.payment.status).toBe("verified");
-      expect(body.payment.amount_usd).toBe(10);
-      expect(body.payment.plan_id).toBe("starter");
+      expect(body.payment.amount_usd).toBe(5);
+      expect(body.payment.plan_id).toBe("byok");
       // Payment IDs are now stripe-style pi_... strings
       expect(body.payment.id).toMatch(/^pi_/);
     });
@@ -512,8 +341,8 @@ describe("Server API", () => {
       mockedVerifyTransfer.mockResolvedValueOnce({
         from: "0xSender",
         to: "0xTestBaseWallet",
-        amountRaw: "10000000",
-        amountUsd: 10,
+        amountRaw: "5000000",
+        amountUsd: 5,
         token: "usdc",
         blockNumber: 54321,
         txHash: "0xsepolia_tx",
@@ -528,7 +357,7 @@ describe("Server API", () => {
           token: "usdc",
           idType: "tg",
           uid: "42",
-          plan: "starter",
+          plan: "byok",
           apiKey: "test-api-key",
         }),
       });
@@ -626,8 +455,8 @@ describe("Server API", () => {
       mockedVerifyTransfer.mockResolvedValueOnce({
         from: "0xSender",
         to: "0xTestBaseWallet",
-        amountRaw: "10000000",
-        amountUsd: 10,
+        amountRaw: "5000000",
+        amountUsd: 5,
         token: "usdt",
         blockNumber: 12345,
         txHash: "0xdefault_token_tx",
@@ -642,7 +471,7 @@ describe("Server API", () => {
           // no token field
           idType: "tg",
           uid: "42",
-          plan: "starter",
+          plan: "byok",
           apiKey: "test-api-key",
         }),
       });
@@ -923,17 +752,10 @@ describe("Server API", () => {
 
     it("returns 410 for expired checkout session", async () => {
       // Seed an expired session directly into the mock DB
-      const db = mockDb as any;
-      const table = db.from("checkout_sessions");
-      await table.insert({
-        stripe_id: "cs_expired_test",
-        status: "expired",
-        amount: 1000,
-        plan_id: "starter",
-        url: "http://test/checkout/cs_expired_test",
-        expires_at: new Date(Date.now() - 60000).toISOString(),
-        metadata: {},
-      }).select("*");
+      await mockDb.query(
+        'INSERT INTO "checkout_sessions" ("stripe_id", "status", "amount", "plan_id", "url", "expires_at", "metadata") VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+        ["cs_expired_test", "expired", 1000, "starter", "http://test/checkout/cs_expired_test", new Date(Date.now() - 60000).toISOString(), {}],
+      );
 
       const res = await app.request("/checkout/cs_expired_test");
       expect(res.status).toBe(410);
@@ -942,18 +764,10 @@ describe("Server API", () => {
     });
 
     it("returns 200 with completion text for completed session", async () => {
-      const db = mockDb as any;
-      const table = db.from("checkout_sessions");
-      await table.insert({
-        stripe_id: "cs_complete_test",
-        status: "complete",
-        amount: 2500,
-        plan_id: "pro",
-        url: "http://test/checkout/cs_complete_test",
-        expires_at: new Date(Date.now() + 60000).toISOString(),
-        completed_at: new Date().toISOString(),
-        metadata: {},
-      }).select("*");
+      await mockDb.query(
+        'INSERT INTO "checkout_sessions" ("stripe_id", "status", "amount", "plan_id", "url", "expires_at", "completed_at", "metadata") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        ["cs_complete_test", "complete", 2500, "pro", "http://test/checkout/cs_complete_test", new Date(Date.now() + 60000).toISOString(), new Date().toISOString(), {}],
+      );
 
       const res = await app.request("/checkout/cs_complete_test");
       expect(res.status).toBe(200);
@@ -962,17 +776,10 @@ describe("Server API", () => {
     });
 
     it("returns JSON checkout session data for valid open session", async () => {
-      const db = mockDb as any;
-      const table = db.from("checkout_sessions");
-      await table.insert({
-        stripe_id: "cs_open_test",
-        status: "open",
-        amount: 1000,
-        plan_id: "starter",
-        url: "http://test/checkout/cs_open_test",
-        expires_at: new Date(Date.now() + 1800000).toISOString(),
-        metadata: {},
-      }).select("*");
+      await mockDb.query(
+        'INSERT INTO "checkout_sessions" ("stripe_id", "status", "amount", "plan_id", "url", "expires_at", "metadata") VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+        ["cs_open_test", "open", 1000, "starter", "http://test/checkout/cs_open_test", new Date(Date.now() + 1800000).toISOString(), {}],
+      );
 
       const res = await app.request("/checkout/cs_open_test");
       expect(res.status).toBe(200);
@@ -1102,10 +909,9 @@ describe("Server API", () => {
 
       await new Promise((r) => setTimeout(r, 100));
 
-      const webhookCalls = fetchCalls.filter(
-        (c) => !c.url.includes("supabase"),
-      );
-      expect(webhookCalls.length).toBe(0);
+      // The db layer no longer uses fetch (pg Pool, #6101), so every recorded
+      // fetch would be a webhook callback attempt — there must be none.
+      expect(fetchCalls.length).toBe(0);
 
       globalThis.fetch = originalFetch;
     });
@@ -1148,7 +954,8 @@ describe("Server API", () => {
       expect(body.tokens.base_sepolia.usdc).toBeTruthy();
 
       // Prices for plan matching
-      expect(body.prices.starter).toBe(10);
+      expect(body.prices.byok).toBe(5);
+      expect(body.prices.starter).toBe(5);
       expect(body.prices.pro).toBe(25);
       expect(body.prices.max).toBe(100);
     });
