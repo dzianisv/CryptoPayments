@@ -91,7 +91,7 @@ export function loadConfig(): Config {
 export type ChainId = "base" | "eth" | "ton" | "sol" | "base_sepolia" | "eth_sepolia";
 
 /** Token contract/mint addresses per chain (all 6 decimals) */
-export const TOKEN_ADDRESSES: Record<ChainId, { usdt: string; usdc: string }> = {
+export const TOKEN_ADDRESSES: Record<ChainId, { usdt: string; usdc: string; ausd?: string }> = {
   base: {
     usdt: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -115,6 +115,7 @@ export const TOKEN_ADDRESSES: Record<ChainId, { usdt: string; usdc: string }> = 
   eth_sepolia: {
     usdt: "0x", // No official USDT on Eth Sepolia — placeholder
     usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", // Circle testnet USDC
+    ausd: "0xfCCfda616e5107AC579712C5A461397f88e8e3f2",
   },
 };
 
