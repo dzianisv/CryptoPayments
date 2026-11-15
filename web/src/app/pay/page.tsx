@@ -128,10 +128,12 @@ export default function PayPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Get price for current plan
-  const price = amountUsd
-    ? Number(amountUsd)
-    : config?.prices[plan] ?? config?.prices.starter ?? 10;
+  // Get price for current plan.
+  // Invariant: never quote or collect a price that did not come from the
+  // backend config or the signed amount intent — a missing price fails
+  // visibly (this exact chain rendered a stale $10 for byok from the
+  // retired Supabase config).
+  const price = amountUsd ? Number(amountUsd) : config?.prices[plan];
 
   // Filter chains — hide testnets unless ?test=true
   const visibleChains = showTestnets ? CHAINS : CHAINS.filter((c) => !c.testnet);
@@ -226,6 +228,32 @@ export default function PayPage() {
           <h1 className="text-lg font-semibold mb-2">No user identified</h1>
           <p className="text-sm text-muted">
             Open this page from the Telegram bot or use a payment link with your user ID.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (config === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="rounded-xl border border-border bg-surface p-6 text-center max-w-sm">
+          <h1 className="text-lg font-semibold mb-2">Failed to load payment configuration</h1>
+          <p className="text-sm text-muted">
+            Check your connection and reopen the payment link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (price === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="rounded-xl border border-border bg-surface p-6 text-center max-w-sm">
+          <h1 className="text-lg font-semibold mb-2">Price unavailable</h1>
+          <p className="text-sm text-muted">
+            The price for this plan could not be loaded. Reopen the payment link from the bot.
           </p>
         </div>
       </div>
