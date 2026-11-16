@@ -76,6 +76,7 @@ export function createApp(injectedDb?: DB) {
     tenantType?: string;
     vmProvider?: string;
     hostType?: string;
+    deploymentType?: string;
     amountUsd?: string;
     exp?: string;
     sig?: string;
@@ -97,6 +98,7 @@ export function createApp(injectedDb?: DB) {
     }
     if (input.vmProvider) params.set("vmp", input.vmProvider);
     if (input.hostType) params.set("hostType", input.hostType);
+    if (input.deploymentType) params.set("deploymentType", input.deploymentType);
     const canonical = [...params.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
@@ -151,6 +153,7 @@ export function createApp(injectedDb?: DB) {
       tenantType?: "personal" | "team";
       vmProvider?: "azure" | "hetzner";
       hostType?: "vps";
+      deploymentType?: string;
       amountUsd?: string;
       callbackUrl?: string;
       initData?: string;
@@ -270,6 +273,7 @@ export function createApp(injectedDb?: DB) {
           tenantType: body.tenantType,
           vmProvider: body.vmProvider,
           hostType: body.hostType,
+          deploymentType: body.deploymentType,
         }).catch((err) =>
           console.error("Callback error:", err),
         );
@@ -669,6 +673,7 @@ async function sendCallback(
     tenantType?: string;
     vmProvider?: string;
     hostType?: string;
+    deploymentType?: string;
   } = {},
 ): Promise<void> {
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -687,6 +692,7 @@ async function sendCallback(
       ...(metadata.tenantType ? { tenantType: metadata.tenantType } : {}),
       ...(metadata.vmProvider ? { vmProvider: metadata.vmProvider } : {}),
       ...(metadata.hostType ? { hostType: metadata.hostType } : {}),
+      ...(metadata.deploymentType ? { deploymentType: metadata.deploymentType } : {}),
     },
     timestamp,
   });
