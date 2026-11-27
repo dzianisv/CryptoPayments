@@ -46,6 +46,8 @@ jobs:
       - name: Build
         run: pnpm build
         working-directory: web
+        env:
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ vars.WALLETCONNECT_PROJECT_ID }}
 
       # Cloudflare Pages project "agentlabs-pay" serves pay.agentlabs.cc
       # (replaced Vercel, which was disabled with DEPLOYMENT_DISABLED on

@@ -1,6 +1,12 @@
 // EVM wallet integration via ethers.js v6 (works with any EIP-1193 wallet)
 
-import { BrowserProvider, Contract, parseUnits, type Signer } from "ethers";
+import {
+  BrowserProvider,
+  Contract,
+  parseUnits,
+  type Eip1193Provider,
+  type Signer,
+} from "ethers";
 import { ERC20_ABI, EVM_CHAIN_IDS, EVM_CHAIN_PARAMS, type ChainId } from "../config";
 
 declare global {
@@ -28,10 +34,18 @@ function isChainNotAddedError(err: unknown): boolean {
   return false;
 }
 
-export async function connectEvm(chainId: ChainId): Promise<{ signer: Signer; address: string }> {
-  if (!window.ethereum) throw new Error("No EVM wallet detected");
+export async function connectEvm(
+  chainId: ChainId,
+  eip1193?: Eip1193Provider,
+): Promise<{ signer: Signer; address: string }> {
+  // An explicit EIP-1193 provider (e.g. WalletConnect) wins; the default is
+  // the injected window.ethereum. The "No EVM wallet detected" throw applies
+  // only when neither is available.
+  const injected =
+    eip1193 ?? (typeof window !== "undefined" ? window.ethereum : undefined);
+  if (!injected) throw new Error("No EVM wallet detected");
 
-  const provider = new BrowserProvider(window.ethereum);
+  const provider = new BrowserProvider(injected);
   await provider.send("eth_requestAccounts", []);
 
   // Switch to correct chain

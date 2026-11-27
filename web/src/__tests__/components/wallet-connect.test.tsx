@@ -11,6 +11,12 @@ vi.mock("@/lib/wallets/evm", () => ({
   sendEvmTransfer: vi.fn(),
 }));
 
+vi.mock("@/lib/wallets/walletconnect", () => ({
+  isWalletConnectConfigured: vi.fn(() => false),
+  connectWalletConnect: vi.fn(),
+  disconnectWalletConnect: vi.fn(async () => {}),
+}));
+
 vi.mock("@/lib/wallets/solana", () => ({
   isSolanaAvailable: vi.fn(() => false),
   connectSolana: vi.fn(),
@@ -40,6 +46,11 @@ vi.mock("@tonconnect/ui-react", () => ({
 }));
 
 import { isEvmAvailable, connectEvm, sendEvmTransfer } from "@/lib/wallets/evm";
+import {
+  isWalletConnectConfigured,
+  connectWalletConnect,
+  disconnectWalletConnect,
+} from "@/lib/wallets/walletconnect";
 import { isSolanaAvailable, connectSolana, sendSolanaTransfer } from "@/lib/wallets/solana";
 import { buildTonTransferMessage } from "@/lib/wallets/ton";
 
@@ -56,6 +67,7 @@ const defaultProps = {
 describe("WalletConnect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(false);
     mockTonAddress = "";
   });
 
@@ -300,6 +312,88 @@ describe("WalletConnect", () => {
       "error",
       "Insufficient token balance. Please fund your wallet and try again.",
     );
+  });
+
+  // --- WalletConnect tests ---
+
+  it("hides the WalletConnect button when WalletConnect is not configured", () => {
+    vi.mocked(isEvmAvailable).mockReturnValue(false);
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(false);
+    render(<WalletConnect {...defaultProps} chain="base" />);
+    expect(screen.queryByText("Connect with WalletConnect")).not.toBeInTheDocument();
+  });
+
+  it("shows the WalletConnect button when configured, even with no injected wallet and no install prompt", () => {
+    vi.mocked(isEvmAvailable).mockReturnValue(false);
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(true);
+    render(<WalletConnect {...defaultProps} chain="base" />);
+    expect(screen.getByText("Connect with WalletConnect")).toBeInTheDocument();
+    // The injected button is a dead end here (no extension) — hidden.
+    expect(screen.queryByText("Connect Wallet")).not.toBeInTheDocument();
+    expect(screen.queryByText(/not detected/i)).not.toBeInTheDocument();
+  });
+
+  it("connects via WalletConnect and shows address + Pay button", async () => {
+    const user = userEvent.setup();
+    vi.mocked(isEvmAvailable).mockReturnValue(false);
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(true);
+    const wcProvider = { request: vi.fn() };
+    vi.mocked(connectWalletConnect).mockResolvedValue(wcProvider as any);
+    vi.mocked(connectEvm).mockResolvedValue({
+      signer: {} as any,
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    });
+
+    const onStatus = vi.fn();
+    render(<WalletConnect {...defaultProps} chain="base" onStatus={onStatus} />);
+
+    await user.click(screen.getByText("Connect with WalletConnect"));
+    expect(connectWalletConnect).toHaveBeenCalledWith("base");
+    expect(connectEvm).toHaveBeenCalledWith("base", wcProvider);
+    expect(onStatus).toHaveBeenCalledWith("pending", expect.stringContaining("0x1234"));
+    expect(screen.getByText("Pay $10.00 USDC")).toBeInTheDocument();
+  });
+
+  it("disconnects the WalletConnect session when the chain changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(isEvmAvailable).mockReturnValue(false);
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(true);
+    vi.mocked(connectWalletConnect).mockResolvedValue({ request: vi.fn() } as any);
+    vi.mocked(connectEvm).mockResolvedValue({
+      signer: {} as any,
+      address: "0x1234567890abcdef1234567890abcdef12345678",
+    });
+
+    const { rerender } = render(<WalletConnect {...defaultProps} chain="base" />);
+    await user.click(screen.getByText("Connect with WalletConnect"));
+    expect(screen.getByText(/0x1234/)).toBeInTheDocument();
+
+    rerender(<WalletConnect {...defaultProps} chain="eth" />);
+    expect(disconnectWalletConnect).toHaveBeenCalled();
+    expect(screen.queryByText(/0x1234/)).not.toBeInTheDocument();
+  });
+
+  it("shows the WalletConnect docs link for EVM chains when not configured", () => {
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(false);
+    render(<WalletConnect {...defaultProps} chain="base" />);
+    const link = screen.getByRole("link", { name: /WalletConnect docs/i });
+    expect(link).toHaveAttribute("href", "https://docs.walletconnect.com/");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("shows the WalletConnect docs link for EVM chains when configured", () => {
+    vi.mocked(isWalletConnectConfigured).mockReturnValue(true);
+    render(<WalletConnect {...defaultProps} chain="base" />);
+    const link = screen.getByRole("link", { name: /WalletConnect docs/i });
+    expect(link).toHaveAttribute("href", "https://docs.walletconnect.com/");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("does not show the WalletConnect docs link for non-EVM chains", () => {
+    render(<WalletConnect {...defaultProps} chain="sol" />);
+    expect(
+      screen.queryByRole("link", { name: /WalletConnect docs/i }),
+    ).not.toBeInTheDocument();
   });
 
   // --- TON Connect tests ---
