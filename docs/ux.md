@@ -55,6 +55,7 @@ SPA detects available wallets and shows the appropriate connect button. If no wa
   - Auto-switches chain via `wallet_switchEthereumChain`
   - If wallet returns error code `4902` (chain not added), falls back to `wallet_addEthereumChain` with full chain parameters (chainName, rpcUrls, nativeCurrency, blockExplorerUrls)
   - ethers.js v6 wraps the 4902 error three different ways; all are detected
+  - **WalletConnect v2** (Telegram WebApp / mobile browsers, where no `window.ethereum` exists): button labeled **"Connect with WalletConnect"**, shown when the build carries a WalletConnect project id (`NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, set from the `WALLETCONNECT_PROJECT_ID` repo variable in the deploy workflow's Build step). The session is established via `@walletconnect/ethereum-provider` with the user-selected chain requested at connect time, and the same ethers.js transfer then runs over the WalletConnect provider. A **"WalletConnect docs"** link (https://docs.walletconnect.com/) sits with the EVM connect controls. With no project id configured, the page behaves exactly as the injected-only flow above.
 - **Solana**: Detects `window.phantom.solana` -> `connect()`. SPL token transfer via `@solana/spl-token`.
 - **TON**: TonConnect UI SDK modal. Jetton transfer via TEP-74 standard (`@ton/core`).
 
