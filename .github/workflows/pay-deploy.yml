@@ -1,4 +1,4 @@
-name: Deploy payment SPA to Netlify
+name: Deploy payment SPA to Cloudflare Pages
 
 on:
   push:
@@ -47,9 +47,14 @@ jobs:
         run: pnpm build
         working-directory: web
 
-      - name: Deploy to Netlify
-        run: npx -y netlify-cli@latest deploy --dir=out --prod
+      # Cloudflare Pages project "agentlabs-pay" serves pay.agentlabs.cc
+      # (replaced Vercel, which was disabled with DEPLOYMENT_DISABLED on
+      # 2026-11-27, and the Netlify lane, whose secrets were never set —
+      # see VibeTechnologies/AgentPod#6435).
+      - name: Deploy to Cloudflare Pages
+        if: github.event_name != 'pull_request'
+        run: npx -y wrangler@4 pages deploy out --project-name agentlabs-pay --branch main --commit-dirty=true
         working-directory: web
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
