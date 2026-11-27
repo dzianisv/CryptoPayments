@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import type { ChainId, TokenId } from "@/lib/config";
 import { EVM_CHAINS } from "@/lib/config";
 import { isEvmAvailable, connectEvm, sendEvmTransfer } from "@/lib/wallets/evm";
+import {
+  isWalletConnectConfigured,
+  connectWalletConnect,
+  disconnectWalletConnect,
+} from "@/lib/wallets/walletconnect";
 import { isSolanaAvailable, connectSolana, sendSolanaTransfer } from "@/lib/wallets/solana";
 import { buildTonTransferMessage } from "@/lib/wallets/ton";
 import { useTonConnectUI, useTonAddress } from "@tonconnect/ui-react";
@@ -35,6 +40,11 @@ function friendlyError(err: unknown): string {
   if (msg.includes("NETWORK_ERROR") || msg.includes("network changed")) {
     return "Network error. Please check your wallet connection.";
   }
+  // WalletConnect: the selected chain was not approved in the session —
+  // the recovery is re-pairing with that chain requested.
+  if (msg.includes("not approved") || msg.includes("Failed to switch to chain")) {
+    return "Chain not approved in your wallet — reconnect and approve it in the WalletConnect prompt.";
+  }
   return msg;
 }
 
@@ -61,6 +71,7 @@ export function WalletConnect({
 }: WalletConnectProps) {
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
   const [evmSigner, setEvmSigner] = useState<Signer | null>(null);
+  const [evmTransport, setEvmTransport] = useState<"injected" | "walletconnect" | null>(null);
   const [sending, setSending] = useState(false);
   const prevChainRef = useRef(chain);
 
@@ -75,12 +86,18 @@ export function WalletConnect({
   // Reset wallet state when chain changes
   useEffect(() => {
     if (prevChainRef.current !== chain) {
+      // A WalletConnect session is bound to the chain it was paired with —
+      // drop it so the next connect re-pairs for the new chain.
+      if (evmTransport === "walletconnect") {
+        disconnectWalletConnect().catch(() => {});
+      }
+      setEvmTransport(null);
       setConnectedAddress(null);
       setEvmSigner(null);
       setSending(false);
       prevChainRef.current = chain;
     }
-  }, [chain]);
+  }, [chain, evmTransport]);
 
   // Sync TON connected address from TonConnect
   useEffect(() => {
@@ -92,6 +109,17 @@ export function WalletConnect({
   // Check extension availability
   const hasEvmWallet = isEvm && isEvmAvailable();
   const hasSolWallet = isSol && isSolanaAvailable();
+
+  // WalletConnect is the EVM fallback when no extension is injected
+  // (Telegram WebApp / mobile browsers). Configured = project id baked in.
+  const wcConfigured = isEvm && isWalletConnectConfigured();
+  // The injected button is the only EVM path when WalletConnect is not
+  // configured; when it is configured and no extension exists, the injected
+  // button (and its install prompt) would be a dead end — hide both.
+  const showInjectedButton = !isEvm || hasEvmWallet || !wcConfigured;
+  const showInstallPrompt = isEvm
+    ? !hasEvmWallet && !wcConfigured
+    : !hasSolWallet && !isTon;
 
   // Determine wallet type for install prompt
   const walletType = isEvm ? "evm" : isSol ? "sol" : "ton";
@@ -110,6 +138,7 @@ export function WalletConnect({
       if (isEvm) {
         const { signer, address } = await connectEvm(chain);
         setEvmSigner(signer);
+        setEvmTransport("injected");
         setConnectedAddress(address);
         onStatus("pending", `Connected: ${address.slice(0, 6)}...${address.slice(-4)}`);
       } else if (isSol) {
@@ -120,6 +149,21 @@ export function WalletConnect({
         // Open TonConnect modal (QR code / wallet list)
         await tonConnectUI.openModal();
       }
+    } catch (err) {
+      onStatus("error", friendlyError(err));
+    }
+  }
+
+  async function handleConnectWalletConnect() {
+    try {
+      // connect() opens the WalletConnect QR modal and establishes the
+      // session for the selected chain before the provider is used.
+      const wcProvider = await connectWalletConnect(chain);
+      const { signer, address } = await connectEvm(chain, wcProvider);
+      setEvmSigner(signer);
+      setEvmTransport("walletconnect");
+      setConnectedAddress(address);
+      onStatus("pending", `Connected: ${address.slice(0, 6)}...${address.slice(-4)}`);
     } catch (err) {
       onStatus("error", friendlyError(err));
     }
@@ -164,25 +208,43 @@ export function WalletConnect({
       {/* Connect button — always shown */}
       {!connectedAddress && (
         <>
-          <button
-            onClick={handleConnect}
-            disabled={disabled}
-            className={`
-              w-full rounded-lg px-4 py-3 text-sm font-semibold
-              transition-all duration-150
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-              ${isEvm ? "bg-[#3b82f6] hover:bg-[#2563eb] text-white" : ""}
-              ${isSol ? "bg-[#ab9ff2] hover:bg-[#9b8fe2] text-black" : ""}
-              ${isTon ? "bg-[#0098ea] hover:bg-[#0088d0] text-white" : ""}
-            `}
-          >
-            {isEvm && "Connect Wallet"}
-            {isSol && "Connect Phantom"}
-            {isTon && "Connect TON Wallet"}
-          </button>
+          {showInjectedButton && (
+            <button
+              onClick={handleConnect}
+              disabled={disabled}
+              className={`
+                w-full rounded-lg px-4 py-3 text-sm font-semibold
+                transition-all duration-150
+                ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+                ${isEvm ? "bg-[#3b82f6] hover:bg-[#2563eb] text-white" : ""}
+                ${isSol ? "bg-[#ab9ff2] hover:bg-[#9b8fe2] text-black" : ""}
+                ${isTon ? "bg-[#0098ea] hover:bg-[#0088d0] text-white" : ""}
+              `}
+            >
+              {isEvm && "Connect Wallet"}
+              {isSol && "Connect Phantom"}
+              {isTon && "Connect TON Wallet"}
+            </button>
+          )}
+
+          {/* WalletConnect option (EVM only, when a project id is configured) */}
+          {wcConfigured && (
+            <button
+              onClick={handleConnectWalletConnect}
+              disabled={disabled}
+              className={`
+                w-full rounded-lg px-4 py-3 text-sm font-semibold
+                transition-all duration-150
+                border border-[#3b82f6] text-[#3b82f6] hover:bg-[#3b82f6]/10
+                ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+              `}
+            >
+              Connect with WalletConnect
+            </button>
+          )}
 
           {/* Install prompt when extension not detected */}
-          {!hasExtension && (
+          {showInstallPrompt && (
             <p className="text-xs text-muted text-center">
               {walletInfo.name} not detected.{" "}
               <a
@@ -227,6 +289,21 @@ export function WalletConnect({
             )}
           </button>
         </>
+      )}
+
+      {/* WalletConnect docs link — with the EVM connect controls, ungated */}
+      {isEvm && (
+        <p className="text-xs text-muted text-center">
+          New to WalletConnect?{" "}
+          <a
+            href="https://docs.walletconnect.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent underline hover:text-accent-hover"
+          >
+            WalletConnect docs
+          </a>
+        </p>
       )}
     </div>
   );
