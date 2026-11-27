@@ -16,7 +16,7 @@
  *   GET  /v1/events
  */
 
-export const DEFAULT_API_BASE = "https://crypto-payments.agentpod.agentlabs.cc";
+export const DEFAULT_API_BASE = "https://pay.agentlabs.cc";
 
 export interface PayClientConfig {
   baseUrl: string;
