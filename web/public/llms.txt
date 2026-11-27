@@ -45,7 +45,7 @@ An agent pays a Pay by AgentLabs merchant the same way a server does:
 2. Pay the hosted checkout (wallet) or send the exact token amount to the settlement wallet from GET /api/config and confirm with POST /v1/payment_intents/:id/confirm (tx_hash) or POST /api/payment.
 3. Confirm the outcome via GET /v1/payment_intents/:id or GET /v1/events — a payment counts when it verifies on-chain.
 
-A dedicated MCP server for agent payments is in development (tracked in https://github.com/VibeTechnologies/AgentPod/issues/6440). Until it ships, this file is the machine-readable contract.
+A dedicated MCP server for agent payments ships in the repo (the mcp/ package of dzianisv/CryptoPayments — run `node mcp/dist/index.js` with AGENTLABS_PAY_API_KEY set; tracked in https://github.com/VibeTechnologies/AgentPod/issues/6440). This file remains the machine-readable contract.
 
 ## Positioning
 

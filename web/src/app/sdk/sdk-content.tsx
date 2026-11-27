@@ -302,7 +302,7 @@ const faqs = [
   },
   {
     q: "How do AI agents pay through it?",
-    a: "Agents use the same REST API and hosted checkout: create a payment intent or open a signed checkout link, pay, and confirm status via the API. A dedicated MCP server for agent payments is in development; the machine-readable integration summary lives at pay.agentlabs.cc/llms.txt.",
+    a: "Agents use the same REST API and hosted checkout: create a payment intent or open a signed checkout link, pay, and confirm status via the API. A dedicated MCP server for agent payments ships in this repo (the mcp/ package — run `node mcp/dist/index.js` with AGENTLABS_PAY_API_KEY set); the machine-readable integration summary lives at pay.agentlabs.cc/llms.txt.",
   },
   {
     q: "Is it really open source?",
@@ -713,16 +713,19 @@ export function SdkContent({ url }: { url: string }) {
                 it, and confirms the result programmatically.
               </p>
               <p className="mt-4 leading-relaxed text-zinc-400">
-                Until the dedicated server ships,{" "}
+                The dedicated MCP server ships in the repo (the{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">mcp/</code>{" "}
+                package): run it with your API key and agents get the payment
+                tools natively.{" "}
                 <a href="/llms.txt" className="text-[#58a6ff] hover:underline">
                   llms.txt
                 </a>{" "}
-                is the contract an agent needs: endpoints, parameters, and the payment
-                flow in plain text.
+                remains the plain-text contract: endpoints, parameters, and the
+                payment flow.
               </p>
               <p className="mt-6">
-                <span className="rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-amber-300">
-                  MCP server — in development
+                <span className="rounded border border-emerald-400/25 bg-emerald-400/[0.07] px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-emerald-300">
+                  MCP server — available in repo
                 </span>
               </p>
             </div>
