@@ -52,9 +52,9 @@ Environment:
   self-serve onboarding is tracked in
   [AgentPod #6440](https://github.com/VibeTechnologies/AgentPod/issues/6440).
 - `AGENTLABS_PAY_API_BASE` — optional API base URL
-  (default `https://crypto-payments.agentpod.agentlabs.cc`;
-  `https://pay.agentlabs.cc` also works — it proxies `/v1` to the same
-  backend).
+  (default `https://pay.agentlabs.cc` — it proxies `/v1` to the backend;
+  the backend host `https://crypto-payments.agentpod.agentlabs.cc` also
+  works directly).
 
 ## MCP client config
 

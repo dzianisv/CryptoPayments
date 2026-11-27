@@ -9,7 +9,7 @@
  * Environment:
  *   AGENTLABS_PAY_API_KEY  API key for the /v1 API (issued on request today).
  *   AGENTLABS_PAY_API_BASE Optional API base URL
- *                          (default https://crypto-payments.agentpod.agentlabs.cc).
+ *                          (default https://pay.agentlabs.cc).
  *
  * Run:  node dist/index.js        (after `pnpm build`)
  *   or: pnpm --filter agentlabs-pay-mcp start

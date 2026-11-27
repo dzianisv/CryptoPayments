@@ -421,7 +421,7 @@ const wallets: {
   {
     name: "WalletConnect",
     desc: "Connect a WalletConnect-compatible wallet — mobile or desktop — by scanning a QR code, and pay the backend-issued transaction from the connected wallet. One connection flow covers hundreds of wallets on the EVM chains (Base and Ethereum).",
-    note: "WalletConnect connect-and-pay is being integrated into the hosted checkout (AgentPod #6438). Until it lands, every checkout still offers QR code and copied-address payment as the fallback.",
+    note: "WalletConnect connect-and-pay is live in the hosted checkout (AgentPod #6438): connect a wallet on the checkout page and pay from it directly, alongside MetaMask, Phantom, and Tonkeeper. QR code and copied-address payment remain available as the fallback.",
     link: { href: "https://docs.walletconnect.com/", label: "WalletConnect documentation" },
   },
   {
@@ -953,9 +953,9 @@ export function SdkContent({ url }: { url: string }) {
                 </code>{" "}
                 is optional and defaults to the production API (
                 <code className="font-mono text-[0.9em] text-zinc-200">
-                  https://crypto-payments.agentpod.agentlabs.cc
+                  https://pay.agentlabs.cc
                 </code>
-                ); {API_BASE} works as a base too — it proxies /v1 to the same backend.
+                ) — the same {API_BASE} as the REST examples above.
               </p>
               <p className="mt-4 leading-relaxed text-zinc-400">
                 Typical agent flow:{" "}
