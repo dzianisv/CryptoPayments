@@ -38,6 +38,21 @@ import {
 } from "./db.js";
 import { verifyTransfer, resolveplan } from "./verify.js";
 import { verifyTelegramInitData } from "./telegram.js";
+import {
+  b64EncodeJson,
+  buildPaymentRequired,
+  buildSettlementReceipt,
+  facilitatorSettle,
+  facilitatorVerify,
+  FacilitatorUnavailable,
+  normalizePaymentHeader,
+  x402Network,
+  x402PayTo,
+  x402PriceUsd,
+  type NormalizedPayment,
+  type SettleResult,
+  type VerifyResult,
+} from "./x402.js";
 
 const config = loadConfig();
 const db = createDB(config.databaseUrl);
@@ -52,6 +67,7 @@ export function createApp(injectedDb?: DB) {
 
   app.use("/api/*", cors({ origin: "*" }));
   app.use("/v1/*", cors({ origin: "*" }));
+  app.use("/x402/*", cors({ origin: "*" }));
 
   app.use("*", async (c, next) => {
     const start = Date.now();
@@ -589,6 +605,138 @@ export function createApp(injectedDb?: DB) {
     if (!requireApiKey(c)) return c.json({ error: "Unauthorized" }, 401);
     const session = await getCheckoutSessionById(appDb, c.req.param("id"));
     if (!session) return c.json({ error: "Checkout session not found" }, 404);
+    return c.json(session);
+  });
+
+  // ── x402 checkout (AgentPod #6451) ───────────────────────────────────────
+  // Payment replaces account auth on this route: no API key. An unpaid
+  // request gets a spec-shaped 402 (src/x402.ts); a paid one is verified and
+  // settled through the facilitator BEFORE any object is created
+  // (settle-before-create: serving first would mint unpaid sessions).
+
+  function paymentRequired(c: Context, error: string) {
+    const body = buildPaymentRequired(config, error);
+    c.header("PAYMENT-REQUIRED", b64EncodeJson(body));
+    return c.json(body, 402);
+  }
+
+  app.post("/x402/checkout", async (c) => {
+    if (!config.x402.enabled) return c.json({ error: "Not found" }, 404);
+
+    const paymentHeader =
+      c.req.header("PAYMENT-SIGNATURE") ?? c.req.header("X-PAYMENT");
+    if (!paymentHeader) {
+      return paymentRequired(c, "PAYMENT-SIGNATURE header is required");
+    }
+
+    const body = await c.req
+      .json<{ plan_id?: string; metadata?: Record<string, unknown> }>()
+      .catch(
+        () =>
+          ({}) as { plan_id?: string; metadata?: Record<string, unknown> },
+      );
+
+    let payment: NormalizedPayment;
+    try {
+      payment = normalizePaymentHeader(paymentHeader, config);
+    } catch (err) {
+      return paymentRequired(
+        c,
+        err instanceof Error ? err.message : "Invalid payment payload",
+      );
+    }
+
+    let verify: VerifyResult;
+    try {
+      verify = await facilitatorVerify(config, payment.facilitatorBody);
+    } catch (err) {
+      if (err instanceof FacilitatorUnavailable) {
+        console.error("x402 facilitator verify failed:", err.message);
+        return c.json({ error: "facilitator_unavailable" }, 502);
+      }
+      throw err;
+    }
+    if (!verify.isValid) {
+      return paymentRequired(
+        c,
+        verify.invalidReason ?? "Payment verification failed",
+      );
+    }
+
+    let settle: SettleResult;
+    try {
+      settle = await facilitatorSettle(config, payment.facilitatorBody);
+    } catch (err) {
+      if (err instanceof FacilitatorUnavailable) {
+        console.error("x402 facilitator settle failed:", err.message);
+        return c.json({ error: "facilitator_unavailable" }, 502);
+      }
+      throw err;
+    }
+    if (!settle.success || !settle.transaction) {
+      // Includes settlement_pending: not settled → nothing is created. The
+      // settlement tx (if any) is logged for manual reconciliation; the
+      // client may retry the same signed payload — the EIP-3009 nonce makes
+      // a double settlement of it impossible on-chain.
+      console.error(
+        "x402 settle not completed:",
+        settle.errorReason ?? "unknown",
+        settle.transaction ?? "",
+      );
+      return paymentRequired(c, settle.errorReason ?? "Settlement failed");
+    }
+
+    const net = x402Network(config);
+    const amount = x402PriceUsd(config);
+    const payer = settle.payer ?? verify.payer ?? payment.payer;
+    const metadata: Record<string, unknown> = {
+      ...(body.metadata ?? {}),
+      x402: true,
+      x402_version: payment.version,
+      network: config.x402.network,
+      payer,
+      facilitator: config.x402.facilitatorUrl,
+    };
+
+    const pi = await createPaymentIntent(appDb, {
+      amount,
+      chainId: net.chainKey,
+      token: "usdc",
+      planId: body.plan_id,
+      description: "x402 checkout",
+      metadata,
+    });
+    await updatePaymentIntentStatus(appDb, pi.stripe_id, "succeeded", {
+      txHash: settle.transaction,
+      chainId: net.chainKey,
+      token: "usdc",
+      fromAddress: payer,
+      toAddress: x402PayTo(config),
+      amountRaw: config.x402.priceAtomic,
+    });
+    const session = await createCheckoutSession(
+      appDb,
+      {
+        paymentIntentId: pi.stripe_id,
+        planId: body.plan_id,
+        amount,
+        metadata,
+      },
+      config.baseUrl,
+    );
+    await createWebhookEvent(appDb, "x402.payment.settled", {
+      payment_intent: pi.stripe_id,
+      checkout_session: session.stripe_id,
+      transaction: settle.transaction,
+      network: config.x402.network,
+      payer,
+    });
+
+    const receipt = b64EncodeJson(
+      buildSettlementReceipt(config, settle, payer),
+    );
+    c.header("PAYMENT-RESPONSE", receipt);
+    if (payment.version === 1) c.header("X-PAYMENT-RESPONSE", receipt);
     return c.json(session);
   });
 

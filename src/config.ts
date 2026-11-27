@@ -40,6 +40,19 @@ export interface Config {
   checkoutSecret: string;
   /** Base URL for the payment page (for generating links) */
   baseUrl: string;
+  /** x402 payments (AgentPod #6451): the POST /x402/checkout gate. */
+  x402: {
+    /** Route returns 404 unless X402_ENABLED=true. */
+    enabled: boolean;
+    /** Facilitator base URL for /verify + /settle. */
+    facilitatorUrl: string;
+    /** CAIP-2 network the requirement is issued for. */
+    network: string;
+    /** Price in USDC atomic units (6 decimals), as a string. */
+    priceAtomic: string;
+    /** Authorization validity window offered in the requirement. */
+    maxTimeoutSeconds: number;
+  };
 }
 
 /** Read an env var with an optional fallback (Deno + Node compatible). */
@@ -84,6 +97,51 @@ export function loadConfig(): Config {
     callbackSecret: env("CALLBACK_SECRET"),
     checkoutSecret: env("CHECKOUT_SECRET", env("CALLBACK_SECRET")),
     baseUrl: env("BASE_URL", "https://pay.openclaw.ai"),
+    x402: loadX402Config(),
+  };
+}
+
+/** x402 config (AgentPod #6451). Fail-closed rules:
+ *  - Only Base Sepolia (eip155:84532, proof) and Base (eip155:8453) exist.
+ *  - Base mainnet must never silently ride the public testnet facilitator
+ *    (x402.org lists no mainnet kinds): selecting eip155:8453 requires an
+ *    explicit non-default X402_FACILITATOR_URL (the CDP facilitator, wired
+ *    by the owner at the mainnet decision) or startup fails. */
+function loadX402Config(): Config["x402"] {
+  const enabled = env("X402_ENABLED") === "true";
+  const network = env("X402_NETWORK", "eip155:84532");
+  // Normalize BEFORE any comparison: a trailing slash must not slip the
+  // mainnet guard below past the exact string it exists to exclude.
+  const facilitatorUrl = env(
+    "X402_FACILITATOR_URL",
+    "https://x402.org/facilitator",
+  ).replace(/\/+$/, "");
+  if (network !== "eip155:84532" && network !== "eip155:8453") {
+    throw new Error(
+      `X402_NETWORK ${network} is not supported (only eip155:84532 and eip155:8453)`,
+    );
+  }
+  if (
+    network === "eip155:8453" &&
+    facilitatorUrl === "https://x402.org/facilitator"
+  ) {
+    throw new Error(
+      "X402_NETWORK=eip155:8453 (Base mainnet) requires an explicit X402_FACILITATOR_URL " +
+        "(the public x402.org facilitator is testnet-only). Mainnet stays disabled until the owner provisions the CDP facilitator.",
+    );
+  }
+  const priceAtomic = env("X402_PRICE_ATOMIC", "10000");
+  if (!/^\d+$/.test(priceAtomic) || BigInt(priceAtomic) <= 0n) {
+    throw new Error(
+      `X402_PRICE_ATOMIC must be a positive integer of atomic units, got ${JSON.stringify(priceAtomic)}`,
+    );
+  }
+  return {
+    enabled,
+    facilitatorUrl,
+    network,
+    priceAtomic,
+    maxTimeoutSeconds: Number(env("X402_MAX_TIMEOUT_SECONDS")) || 300,
   };
 }
 

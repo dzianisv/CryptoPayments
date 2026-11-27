@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PayApiError, type PayClient } from "./client.js";
+import type { X402Payer } from "./x402.js";
 
 /**
  * MCP tool definitions for Pay by AgentLabs.
@@ -287,6 +288,109 @@ export function registerTools(server: McpServer, client: PayClient): void {
           return {
             isError: true,
             content: [{ type: "text" as const, text: message }],
+          };
+        }
+      },
+    );
+  }
+}
+
+// ── x402 payer tools (AgentPod #6451) ────────────────────────────────────────
+// These pay ARBITRARY x402-priced URLs with the env-configured wallet, so
+// they run against X402Payer, not the /v1 PayClient (no API key involved).
+
+export interface X402ToolDef {
+  name: string;
+  title: string;
+  description: string;
+  schema: z.ZodRawShape;
+  run: (payer: X402Payer, args: Record<string, unknown>) => Promise<unknown>;
+}
+
+const x402RequestShape = {
+  url: z.string().url().describe("The x402-priced resource URL."),
+  method: z
+    .string()
+    .optional()
+    .describe("HTTP method (default POST)."),
+  body: z
+    .record(z.unknown())
+    .optional()
+    .describe("Optional JSON request body, forwarded verbatim."),
+};
+
+export const X402_TOOLS: X402ToolDef[] = [
+  {
+    name: "get_x402_payment_requirements",
+    title: "Get x402 payment requirements",
+    description:
+      "Fetch a resource WITHOUT paying. If it answers 402, returns the parsed x402 payment requirements (accepts[]) from the PAYMENT-REQUIRED header or body; otherwise returns the response as-is. Signs nothing.",
+    schema: { ...x402RequestShape },
+    run: (payer, args) =>
+      payer.getRequirements(String(args.url), {
+        method: args.method as string | undefined,
+        body: args.body,
+      }),
+  },
+  {
+    name: "pay_x402_resource",
+    title: "Pay an x402-priced resource",
+    description:
+      "Fetch a resource; on 402, select its exact/EIP-3009 USDC requirement (Base Sepolia preferred; Base mainnet only when `network` names it explicitly), sign a transferWithAuthorization with the env wallet key, and retry with the payment header. Enforces the per-payment cap (AGENTLABS_PAY_X402_MAX_AMOUNT_ATOMIC, default 1 USDC; `max_amount_atomic` can only lower it). Returns the response plus the decoded settlement receipt.",
+    schema: {
+      ...x402RequestShape,
+      max_amount_atomic: z
+        .string()
+        .optional()
+        .describe("Per-call cap in atomic units (can only lower the env cap)."),
+      network: z
+        .string()
+        .optional()
+        .describe(
+          "CAIP-2 network to pay on (eip155:84532 / eip155:8453). Mainnet is never auto-selected.",
+        ),
+    },
+    run: (payer, args) =>
+      payer.pay(String(args.url), {
+        method: args.method as string | undefined,
+        body: args.body,
+        maxAmountAtomic: args.max_amount_atomic as string | undefined,
+        network: args.network as string | undefined,
+      }),
+  },
+  {
+    name: "x402_wallet_info",
+    title: "x402 wallet info",
+    description:
+      "Return the x402 payer wallet's address and its Base Sepolia USDC balance (atomic units) — use it to confirm faucet funds landed before paying. Never returns key material.",
+    schema: {},
+    run: (payer) => payer.walletInfo(),
+  },
+];
+
+/** Bind the x402 payer tools onto an MCP server. */
+export function registerX402Tools(server: McpServer, payer: X402Payer): void {
+  for (const tool of X402_TOOLS) {
+    server.registerTool(
+      tool.name,
+      { title: tool.title, description: tool.description, inputSchema: tool.schema },
+      async (args: Record<string, unknown>) => {
+        try {
+          const result = await tool.run(payer, args);
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify(result, null, 2) },
+            ],
+          };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: err instanceof Error ? err.message : String(err),
+              },
+            ],
           };
         }
       },
