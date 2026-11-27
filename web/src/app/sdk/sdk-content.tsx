@@ -365,6 +365,181 @@ const mcpExampleTabs: CodeTab[] = [
   { label: "Result", copyText: mcpResultRaw, content: mcpResultSample },
 ];
 
+/* ------------------------------------------------------------------ */
+/* x402 samples — POST /x402/checkout (AgentPod #6451).                */
+/* Values are the real Base Sepolia proof run of 2026-11-27 against    */
+/* the production code and the live x402.org facilitator (fields       */
+/* trimmed): the unpaid 402, the MCP payment, the settled 200.         */
+/* ------------------------------------------------------------------ */
+
+const x402RequiredRaw = `POST /x402/checkout — no payment header
+HTTP/2 402
+PAYMENT-REQUIRED: <base64 of the JSON below>
+
+{
+  "x402Version": 2,
+  "error": "PAYMENT-SIGNATURE header is required",
+  "resource": {
+    "url": "https://crypto-payments.agentpod.agentlabs.cc/x402/checkout",
+    "description": "Create a Pay by AgentLabs hosted checkout session",
+    "mimeType": "application/json"
+  },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:84532",
+      "amount": "10000",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payTo": "0x64cd33D639Cbb0b461c64ec989a7d9789d701a30",
+      "maxTimeoutSeconds": 300,
+      "extra": { "name": "USDC", "version": "2", "assetTransferMethod": "eip3009" }
+    }
+  ]
+}`;
+
+const x402RequiredSample = (
+  <>
+    <Com># POST /x402/checkout — no payment header</Com>
+    <br />
+    <Prop>HTTP/2</Prop> <Prop>402</Prop>
+    <br />
+    <Prop>PAYMENT-REQUIRED</Prop>: <Str>&lt;base64 of the JSON below&gt;</Str>
+    <br />
+    <br />
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"x402Version"</Str>: <Prop>2</Prop>,<br />
+    {"  "}
+    <Str>"error"</Str>: <Str>"PAYMENT-SIGNATURE header is required"</Str>,<br />
+    {"  "}
+    <Str>"resource"</Str>: {'{'}
+    <br />
+    {"    "}
+    <Str>"url"</Str>: <Str>"https://crypto-payments.agentpod.agentlabs.cc/x402/checkout"</Str>,<br />
+    {"    "}
+    <Str>"description"</Str>: <Str>"Create a Pay by AgentLabs hosted checkout session"</Str>,<br />
+    {"    "}
+    <Str>"mimeType"</Str>: <Str>"application/json"</Str>
+    <br />
+    {"  "}
+    {'}'},<br />
+    {"  "}
+    <Str>"accepts"</Str>: [<br />
+    {"    "}
+    {'{'}
+    <br />
+    {"      "}
+    <Str>"scheme"</Str>: <Str>"exact"</Str>,<br />
+    {"      "}
+    <Str>"network"</Str>: <Str>"eip155:84532"</Str>,<br />
+    {"      "}
+    <Str>"amount"</Str>: <Str>"10000"</Str>,<br />
+    {"      "}
+    <Str>"asset"</Str>: <Str>"0x036CbD53842c5426634e7929541eC2318f3dCF7e"</Str>,<br />
+    {"      "}
+    <Str>"payTo"</Str>: <Str>"0x64cd33D639Cbb0b461c64ec989a7d9789d701a30"</Str>,<br />
+    {"      "}
+    <Str>"maxTimeoutSeconds"</Str>: <Prop>300</Prop>,<br />
+    {"      "}
+    <Str>"extra"</Str>: {'{'} <Str>"name"</Str>: <Str>"USDC"</Str>, <Str>"version"</Str>: <Str>"2"</Str>, <Str>"assetTransferMethod"</Str>: <Str>"eip3009"</Str> {'}'}
+    <br />
+    {"    "}
+    {'}'}
+    <br />
+    {"  "}
+    ]<br />
+    {'}'}
+  </>
+);
+
+const x402PayRaw = `{
+  "name": "pay_x402_resource",
+  "arguments": {
+    "url": "https://crypto-payments.agentpod.agentlabs.cc/x402/checkout",
+    "method": "POST"
+  }
+}`;
+
+const x402PaySample = (
+  <>
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"name"</Str>: <Str>"pay_x402_resource"</Str>,<br />
+    {"  "}
+    <Str>"arguments"</Str>: {'{'}
+    <br />
+    {"    "}
+    <Str>"url"</Str>: <Str>"https://crypto-payments.agentpod.agentlabs.cc/x402/checkout"</Str>,<br />
+    {"    "}
+    <Str>"method"</Str>: <Str>"POST"</Str>
+    <br />
+    {"  "}
+    {'}'}
+    <br />
+    {'}'}
+  </>
+);
+
+const x402PaidRaw = `HTTP/2 200
+PAYMENT-RESPONSE: <base64 settlement receipt>
+
+{
+  "id": "cs_6dbe1fc8f894434488cae294d271000f",
+  "paid": true,
+  "settlement": {
+    "success": true,
+    "transaction": "0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0",
+    "network": "eip155:84532",
+    "payer": "0x9443BcD409AB7abE124838d0f778dcF0916d6E6A"
+  }
+}`;
+
+const x402PaidSample = (
+  <>
+    <Prop>HTTP/2</Prop> <Prop>200</Prop>
+    <br />
+    <Prop>PAYMENT-RESPONSE</Prop>: <Str>&lt;base64 settlement receipt&gt;</Str>
+    <br />
+    <br />
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"id"</Str>: <Str>"cs_6dbe1fc8f894434488cae294d271000f"</Str>,<br />
+    {"  "}
+    <Str>"paid"</Str>: <Prop>true</Prop>,<br />
+    {"  "}
+    <Str>"settlement"</Str>: {'{'}
+    <br />
+    {"    "}
+    <Str>"success"</Str>: <Prop>true</Prop>,<br />
+    {"    "}
+    <Str>"transaction"</Str>: <Str>"0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0"</Str>,<br />
+    {"    "}
+    <Str>"network"</Str>: <Str>"eip155:84532"</Str>,<br />
+    {"    "}
+    <Str>"payer"</Str>: <Str>"0x9443BcD409AB7abE124838d0f778dcF0916d6E6A"</Str>
+    <br />
+    {"  "}
+    {'}'}
+    <br />
+    {'}'}
+  </>
+);
+
+const x402Tabs: CodeTab[] = [
+  { label: "402 response", copyText: x402RequiredRaw, content: x402RequiredSample },
+  { label: "Pay with MCP", copyText: x402PayRaw, content: x402PaySample },
+  { label: "Paid — 200", copyText: x402PaidRaw, content: x402PaidSample },
+];
+
+const x402Tools = [
+  { name: "get_x402_payment_requirements", desc: "Request a URL without paying; return the parsed 402 payment requirements" },
+  { name: "pay_x402_resource", desc: "Full cycle: fetch → parse the 402 → sign the EIP-3009 authorization → retry with the payment header → return the resource and its settlement" },
+  { name: "x402_wallet_info", desc: "The payer wallet's address and USDC balance — key material is never returned" },
+];
+
 const mcpTools = [
   { name: "create_checkout_session", route: "POST /v1/checkout/sessions", desc: "Create a hosted checkout session for an amount (USD); returns the session with the hosted checkout url to send the payer to" },
   { name: "get_checkout_session", route: "GET /v1/checkout/sessions/:id", desc: "Retrieve a checkout session by id to check its status (open / complete / expired)" },
@@ -450,6 +625,7 @@ const endpoints = [
   { methods: ["GET"], path: "/v1/events", desc: "Webhook event log — poll what happened instead of guessing" },
   { methods: ["GET"], path: "/api/config", desc: "Public configuration: chains, tokens, prices, settlement wallets" },
   { methods: ["POST"], path: "/api/payment", desc: "Submit a payment transaction for on-chain verification" },
+  { methods: ["POST"], path: "/x402/checkout", desc: "x402-payable route: pay 0.01 USDC (Base Sepolia) to create a checkout session — no API key, the payment is the authorization" },
 ];
 
 const faqs = [
@@ -472,6 +648,10 @@ const faqs = [
   {
     q: "How do AI agents pay through it?",
     a: "Agents use the same REST API and hosted checkout: create a payment intent or open a signed checkout link, pay, and confirm status via the API. A dedicated MCP server for agent payments ships in this repo (the mcp/ package — run `node mcp/dist/index.js` with AGENTLABS_PAY_API_KEY set); the machine-readable integration summary lives at pay.agentlabs.cc/llms.txt.",
+  },
+  {
+    q: "Do you support x402?",
+    a: "Yes. The API server speaks x402 v2 (exact scheme, EIP-3009, USDC): POST /x402/checkout answers an unpaid request with 402 and machine-readable payment requirements, verifies and settles through a facilitator before creating the checkout session, and the MCP server adds payer tools (pay_x402_resource and friends) so agents can pay per request. It is proven end-to-end on Base Sepolia (testnet); Base mainnet is config-only and not enabled, and production enablement of the hosted route is in progress.",
   },
   {
     q: "Is it really open source?",
@@ -572,6 +752,9 @@ export function SdkContent({ url }: { url: string }) {
             </a>
             <a href="#mcp" className="transition-colors hover:text-zinc-100">
               MCP
+            </a>
+            <a href="#x402" className="transition-colors hover:text-zinc-100">
+              x402
             </a>
             <a href="#faq" className="transition-colors hover:text-zinc-100">
               FAQ
@@ -1049,6 +1232,148 @@ export function SdkContent({ url }: { url: string }) {
               </p>
             </div>
             <CodeWindow tabs={mcpExampleTabs} />
+          </div>
+        </div>
+      </section>
+
+
+      {/* ---------------- x402 ---------------- */}
+      <section id="x402" className="scroll-mt-20 border-b border-white/[0.06]">
+        <div className="mx-auto max-w-6xl px-6 py-16 sm:py-24">
+          <SectionHeading eyebrow="x402" title="Charge per request with HTTP 402">
+            The API server speaks{" "}
+            <a
+              href="https://www.x402.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#58a6ff] hover:underline"
+            >
+              x402
+            </a>{" "}
+            (v2), the HTTP-native payment protocol: an unpaid request is answered{" "}
+            <code className="font-mono text-[0.9em] text-zinc-200">
+              402 Payment Required
+            </code>{" "}
+            with machine-readable payment requirements, the payer signs an EIP-3009
+            authorization — no transaction, no gas for the payer — and retries with
+            the payment attached. A facilitator verifies and settles on-chain, and
+            only then does the server do the work.
+          </SectionHeading>
+
+          <div className="grid items-start gap-6 lg:grid-cols-2 lg:gap-12">
+            <div>
+              <h3 className="mb-3 text-xl font-medium tracking-tight text-zinc-50">
+                One payable route
+              </h3>
+              <p className="leading-relaxed text-zinc-400">
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  POST /x402/checkout
+                </code>{" "}
+                sells the creation of a hosted checkout session at a fixed price —
+                default 0.01 USDC (
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  X402_PRICE_ATOMIC
+                </code>
+                ). No API key: the payment is the authorization. On settlement the
+                server records a payment intent (marked paid, with the settlement
+                transaction and the payer), creates the checkout session, and logs
+                an{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  x402.payment.settled
+                </code>{" "}
+                event. The route ships in the API server behind{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  X402_ENABLED
+                </code>{" "}
+                and accepts the v1{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">X-PAYMENT</code>{" "}
+                header alongside the v2{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  PAYMENT-SIGNATURE
+                </code>{" "}
+                header.
+              </p>
+              <p className="mt-4 leading-relaxed text-zinc-400">
+                Agents pay with the MCP server&apos;s three x402 tools (below). The
+                payer key lives only in the environment (
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  AGENTLABS_PAY_X402_PRIVATE_KEY
+                </code>
+                ), and a per-payment cap (
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  AGENTLABS_PAY_X402_MAX_AMOUNT_ATOMIC
+                </code>
+                , default 1 USDC) is enforced before anything is signed — a
+                requirement above the cap is refused, never signed.
+              </p>
+            </div>
+            <CodeWindow tabs={x402Tabs} />
+          </div>
+
+          <h3 className="mb-4 mt-16 text-xl font-medium tracking-tight text-zinc-50">
+            The three payer tools
+          </h3>
+          <div className="overflow-x-auto rounded-xl border border-white/[0.08]">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-white/[0.02] text-xs uppercase tracking-wider text-zinc-500">
+                  <th className="px-5 py-3 font-medium">Tool</th>
+                  <th className="px-5 py-3 font-medium">What it does</th>
+                </tr>
+              </thead>
+              <tbody>
+                {x402Tools.map((t) => (
+                  <tr
+                    key={t.name}
+                    className="border-b border-white/[0.05] transition-colors last:border-0 hover:bg-white/[0.02]"
+                  >
+                    <td className="whitespace-nowrap px-5 py-3.5 font-mono text-[13px] text-zinc-100">
+                      {t.name}
+                    </td>
+                    <td className="px-5 py-3.5 text-zinc-400">{t.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-16 max-w-3xl">
+            <h3 className="mb-3 text-xl font-medium tracking-tight text-zinc-50">
+              Proven on Base Sepolia — testnet only
+            </h3>
+            <p className="leading-relaxed text-zinc-400">
+              On 2026-11-27 the full cycle ran end-to-end against the production
+              code and the live x402.org facilitator: unpaid → 402 → MCP{" "}
+              <code className="font-mono text-[0.9em] text-zinc-200">
+                pay_x402_resource
+              </code>{" "}
+              → settle → retry → 200,{" "}
+              <code className="font-mono text-[0.9em] text-zinc-200">paid: true</code>.
+              Settlement transaction{" "}
+              <a
+                href="https://sepolia.basescan.org/tx/0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all font-mono text-[0.9em] text-[#58a6ff] hover:underline"
+              >
+                0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0
+              </a>{" "}
+              (block 64223092, status 0x1) — payment intent{" "}
+              <code className="font-mono text-[0.9em] text-zinc-200">
+                pi_71b256eb5802438ea2ed9b92d18232f7
+              </code>
+              , checkout session{" "}
+              <code className="font-mono text-[0.9em] text-zinc-200">
+                cs_6dbe1fc8f894434488cae294d271000f
+              </code>
+              . Production enablement of the hosted route is in progress.
+            </p>
+            <p className="mt-4 leading-relaxed text-zinc-400">
+              Stated plainly: this is testnet today. Base mainnet is wired in
+              config but fail-closed — it requires a CDP facilitator key that is
+              not provisioned, and the server refuses to run mainnet against the
+              public testnet facilitator. No mainnet claim is made.
+            </p>
           </div>
         </div>
       </section>
