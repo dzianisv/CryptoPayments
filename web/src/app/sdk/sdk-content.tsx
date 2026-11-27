@@ -215,6 +215,175 @@ const sessionTabs: CodeTab[] = [
   { label: "JavaScript", copyText: jsRaw, content: jsSample },
 ];
 
+/* ------------------------------------------------------------------ */
+/* MCP server samples — mcp/ package (agentlabs-pay-mcp), stdio.       */
+/* The worked example is a real session created against the            */
+/* production API on 2026-11-27 (values verbatim, fields trimmed).     */
+/* ------------------------------------------------------------------ */
+
+const mcpRunRaw = `git clone https://github.com/dzianisv/CryptoPayments.git
+cd CryptoPayments
+pnpm install
+pnpm --filter agentlabs-pay-mcp build
+
+# The server speaks MCP over stdio — your client launches it:
+AGENTLABS_PAY_API_KEY=<your key> node mcp/dist/index.js`;
+
+const mcpRunSample = (
+  <>
+    <Fn>git</Fn> clone https://github.com/dzianisv/CryptoPayments.git<br />
+    <Fn>cd</Fn> CryptoPayments<br />
+    <Fn>pnpm</Fn> install<br />
+    <Fn>pnpm</Fn> <Prop>--filter</Prop> agentlabs-pay-mcp build<br />
+    <br />
+    <Com># The server speaks MCP over stdio — your client launches it:</Com>
+    <br />
+    <Prop>AGENTLABS_PAY_API_KEY</Prop>=<Str>&lt;your key&gt;</Str> <Fn>node</Fn>{" "}
+    mcp/dist/index.js
+  </>
+);
+
+const mcpConfigRaw = `{
+  "mcpServers": {
+    "agentlabs-pay": {
+      "command": "node",
+      "args": ["<path to CryptoPayments>/mcp/dist/index.js"],
+      "env": { "AGENTLABS_PAY_API_KEY": "<your key>" }
+    }
+  }
+}`;
+
+const mcpConfigSample = (
+  <>
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"mcpServers"</Str>: {'{'}
+    <br />
+    {"    "}
+    <Str>"agentlabs-pay"</Str>: {'{'}
+    <br />
+    {"      "}
+    <Str>"command"</Str>: <Str>"node"</Str>,<br />
+    {"      "}
+    <Str>"args"</Str>: [<Str>"&lt;path to CryptoPayments&gt;/mcp/dist/index.js"</Str>],
+    <br />
+    {"      "}
+    <Str>"env"</Str>: {'{'} <Str>"AGENTLABS_PAY_API_KEY"</Str>: <Str>"&lt;your key&gt;"</Str>{" "}
+    {'}'}
+    <br />
+    {"    "}
+    {'}'}
+    <br />
+    {"  "}
+    {'}'}
+    <br />
+    {'}'}
+  </>
+);
+
+const mcpCallRaw = `{
+  "name": "create_checkout_session",
+  "arguments": {
+    "amount": 25,
+    "plan_id": "pro",
+    "success_url": "https://pay.agentlabs.cc/sdk",
+    "cancel_url": "https://pay.agentlabs.cc/sdk"
+  }
+}`;
+
+const mcpCallSample = (
+  <>
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"name"</Str>: <Str>"create_checkout_session"</Str>,<br />
+    {"  "}
+    <Str>"arguments"</Str>: {'{'}
+    <br />
+    {"    "}
+    <Str>"amount"</Str>: <Prop>25</Prop>,<br />
+    {"    "}
+    <Str>"plan_id"</Str>: <Str>"pro"</Str>,<br />
+    {"    "}
+    <Str>"success_url"</Str>: <Str>"https://pay.agentlabs.cc/sdk"</Str>,<br />
+    {"    "}
+    <Str>"cancel_url"</Str>: <Str>"https://pay.agentlabs.cc/sdk"</Str>
+    <br />
+    {"  "}
+    {'}'}
+    <br />
+    {'}'}
+  </>
+);
+
+const mcpResultRaw = `{
+  "id": "f639d441-26a4-41e1-a4f8-f603b6548d35",
+  "stripe_id": "cs_d7a1ab9e1d71413f8421eeb684a8ecf9",
+  "status": "open",
+  "plan_id": "pro",
+  "amount": 25,
+  "currency": "usd",
+  "url": "https://pay.openclaw.ai/checkout/cs_d7a1ab9e1d71413f8421eeb684a8ecf9",
+  "expires_at": "2026-11-27T07:19:39.252Z"
+}`;
+
+const mcpResultSample = (
+  <>
+    {'{'}
+    <br />
+    {"  "}
+    <Str>"id"</Str>: <Str>"f639d441-26a4-41e1-a4f8-f603b6548d35"</Str>,<br />
+    {"  "}
+    <Str>"stripe_id"</Str>: <Str>"cs_d7a1ab9e1d71413f8421eeb684a8ecf9"</Str>,<br />
+    {"  "}
+    <Str>"status"</Str>: <Str>"open"</Str>,<br />
+    {"  "}
+    <Str>"plan_id"</Str>: <Str>"pro"</Str>,<br />
+    {"  "}
+    <Str>"amount"</Str>: <Prop>25</Prop>,<br />
+    {"  "}
+    <Str>"currency"</Str>: <Str>"usd"</Str>,<br />
+    {"  "}
+    <Str>"url"</Str>:{" "}
+    <Str>"https://pay.openclaw.ai/checkout/cs_d7a1ab9e1d71413f8421eeb684a8ecf9"</Str>,
+    <br />
+    {"  "}
+    <Str>"expires_at"</Str>: <Str>"2026-11-27T07:19:39.252Z"</Str>
+    <br />
+    {'}'}
+  </>
+);
+
+const mcpSetupTabs: CodeTab[] = [
+  { label: "Build & run", copyText: mcpRunRaw, content: mcpRunSample },
+  { label: "Client config", copyText: mcpConfigRaw, content: mcpConfigSample },
+];
+
+const mcpExampleTabs: CodeTab[] = [
+  { label: "Tool call", copyText: mcpCallRaw, content: mcpCallSample },
+  { label: "Result", copyText: mcpResultRaw, content: mcpResultSample },
+];
+
+const mcpTools = [
+  { name: "create_checkout_session", route: "POST /v1/checkout/sessions", desc: "Create a hosted checkout session for an amount (USD); returns the session with the hosted checkout url to send the payer to" },
+  { name: "get_checkout_session", route: "GET /v1/checkout/sessions/:id", desc: "Retrieve a checkout session by id to check its status (open / complete / expired)" },
+  { name: "create_payment_intent", route: "POST /v1/payment_intents", desc: "Create a payment intent for an amount (USD), optionally tied to a customer or invoice and a specific chain/token" },
+  { name: "get_payment_intent", route: "GET /v1/payment_intents/:id", desc: "Retrieve a payment intent by id to confirm its payment status" },
+  { name: "list_payment_intents", route: "GET /v1/payment_intents", desc: "List payment intents, optionally filtered by customer or status" },
+  { name: "confirm_payment_intent", route: "POST /v1/payment_intents/:id/confirm", desc: "Mark a payment intent as processing after a payment transaction was submitted, recording its tx hash / chain / token" },
+  { name: "create_customer", route: "POST /v1/customers", desc: "Get-or-create a customer by identity: Telegram user id or email address" },
+  { name: "get_customer", route: "GET /v1/customers/:id", desc: "Retrieve a customer by id" },
+  { name: "list_customers", route: "GET /v1/customers", desc: "List customers (paginated)" },
+  { name: "create_invoice", route: "POST /v1/invoices", desc: "Create a draft invoice for a customer; add line items, then finalize" },
+  { name: "get_invoice", route: "GET /v1/invoices/:id", desc: "Retrieve an invoice by id; can include its line items" },
+  { name: "list_invoices", route: "GET /v1/invoices", desc: "List invoices, optionally filtered by customer or status" },
+  { name: "add_invoice_line_item", route: "POST /v1/invoices/:id/line_items", desc: "Add a line item (description + amount in USD) to a draft invoice" },
+  { name: "finalize_invoice", route: "POST /v1/invoices/:id/finalize", desc: "Finalize a draft invoice so it can be paid" },
+  { name: "void_invoice", route: "POST /v1/invoices/:id/void", desc: "Void an invoice" },
+  { name: "list_events", route: "GET /v1/events", desc: "List webhook events emitted by the backend (e.g. payment completions), optionally filtered by event type" },
+];
+
 const heroTabs: CodeTab[] = [
   ...sessionTabs,
   { label: "Embed", copyText: embedRaw, content: embedSample },
@@ -400,6 +569,9 @@ export function SdkContent({ url }: { url: string }) {
             </a>
             <a href="#agents" className="transition-colors hover:text-zinc-100">
               Agents
+            </a>
+            <a href="#mcp" className="transition-colors hover:text-zinc-100">
+              MCP
             </a>
             <a href="#faq" className="transition-colors hover:text-zinc-100">
               FAQ
@@ -732,6 +904,151 @@ export function SdkContent({ url }: { url: string }) {
             <CodeWindow
               tabs={[{ label: "llms.txt", copyText: llmsExcerpt, content: llmsExcerpt }]}
             />
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------- MCP server ---------------- */}
+      <section id="mcp" className="scroll-mt-20 border-b border-white/[0.06]">
+        <div className="mx-auto max-w-6xl px-6 py-16 sm:py-24">
+          <SectionHeading eyebrow="MCP server" title="Payments as native agent tools">
+            The MCP server (package{" "}
+            <code className="font-mono text-[0.9em] text-zinc-200">agentlabs-pay-mcp</code>,
+            in the repo&apos;s{" "}
+            <code className="font-mono text-[0.9em] text-zinc-200">mcp/</code> directory)
+            wraps the same /v1 REST API as native{" "}
+            <a
+              href="https://modelcontextprotocol.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#58a6ff] hover:underline"
+            >
+              Model Context Protocol
+            </a>{" "}
+            tools, so any MCP client — Claude Desktop, Claude Code, or your own agent
+            runtime — can create checkouts, invoices, and payment intents without writing
+            HTTP code. It speaks MCP over stdio: the client launches the process and
+            exchanges JSON-RPC with it on stdin/stdout. Every tool maps 1:1 to a route
+            the API actually exposes; the server holds no state and no keys of its own —
+            calls go to the API with your key.
+          </SectionHeading>
+
+          <div className="grid items-start gap-6 lg:grid-cols-2 lg:gap-12">
+            <div>
+              <h3 className="mb-3 text-xl font-medium tracking-tight text-zinc-50">
+                Quickstart
+              </h3>
+              <p className="leading-relaxed text-zinc-400">
+                Clone the repo, build the package, and register it with your MCP client.
+                The client starts the server itself — there is nothing to host.
+              </p>
+              <p className="mt-4 leading-relaxed text-zinc-400">
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  AGENTLABS_PAY_API_KEY
+                </code>{" "}
+                is required — the same API key the REST API uses (issued on request
+                today).{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  AGENTLABS_PAY_API_BASE
+                </code>{" "}
+                is optional and defaults to the production API (
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  https://crypto-payments.agentpod.agentlabs.cc
+                </code>
+                ); {API_BASE} works as a base too — it proxies /v1 to the same backend.
+              </p>
+              <p className="mt-4 leading-relaxed text-zinc-400">
+                Typical agent flow:{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  create_payment_intent
+                </code>{" "}
+                (or{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">create_invoice</code>{" "}
+                →{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  add_invoice_line_item
+                </code>{" "}
+                →{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  finalize_invoice
+                </code>
+                ) →{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  create_checkout_session
+                </code>{" "}
+                → send the payer the session&apos;s hosted checkout{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">url</code> → confirm
+                the result with{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  get_checkout_session
+                </code>
+                ,{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  get_payment_intent
+                </code>
+                , or{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">list_events</code>.
+              </p>
+            </div>
+            <CodeWindow tabs={mcpSetupTabs} />
+          </div>
+
+          <h3 className="mb-4 mt-16 text-xl font-medium tracking-tight text-zinc-50">
+            The 16 tools
+          </h3>
+          <div className="overflow-x-auto rounded-xl border border-white/[0.08]">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-white/[0.02] text-xs uppercase tracking-wider text-zinc-500">
+                  <th className="px-5 py-3 font-medium">Tool</th>
+                  <th className="px-5 py-3 font-medium">API route</th>
+                  <th className="px-5 py-3 font-medium">What it does</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mcpTools.map((t) => (
+                  <tr
+                    key={t.name}
+                    className="border-b border-white/[0.05] transition-colors last:border-0 hover:bg-white/[0.02]"
+                  >
+                    <td className="whitespace-nowrap px-5 py-3.5 font-mono text-[13px] text-zinc-100">
+                      {t.name}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3.5 font-mono text-[13px] text-zinc-400">
+                      {t.route}
+                    </td>
+                    <td className="px-5 py-3.5 text-zinc-400">{t.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-16 grid items-start gap-6 lg:grid-cols-2 lg:gap-12">
+            <div>
+              <h3 className="mb-3 text-xl font-medium tracking-tight text-zinc-50">
+                Worked example — a $25 Pro checkout
+              </h3>
+              <p className="leading-relaxed text-zinc-400">
+                The agent calls{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  create_checkout_session
+                </code>{" "}
+                with an amount and a plan. The tool returns the session JSON — this is a
+                real session created against the production API — and the agent sends the
+                payer the hosted checkout{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">url</code>. The
+                payer pays there (WalletConnect, MetaMask, Phantom, Tonkeeper, or QR);
+                the agent polls{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">
+                  get_checkout_session
+                </code>{" "}
+                until the status flips from{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">open</code> to{" "}
+                <code className="font-mono text-[0.9em] text-zinc-200">complete</code>.
+              </p>
+            </div>
+            <CodeWindow tabs={mcpExampleTabs} />
           </div>
         </div>
       </section>
