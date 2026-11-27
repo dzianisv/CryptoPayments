@@ -1,0 +1,52 @@
+# Pay by AgentLabs
+
+> Free open-source SDK to accept crypto payments (USDC, USDT) for services and subscriptions. No platform fees and no intermediary: payments settle directly from the payer's wallet to the merchant's wallet. Non-custodial. Open source (MIT): https://github.com/dzianisv/CryptoPayments — the same code AgentPod runs in production.
+
+## Product pages
+
+- SDK and integration guide: https://pay.agentlabs.cc/sdk
+- Hosted checkout: https://pay.agentlabs.cc/pay
+- Product page: https://agentlabs.cc/pay/
+- Source code: https://github.com/dzianisv/CryptoPayments
+
+## Facts
+
+- Price: free. Platform fee: 0%. The processor takes no cut; the only cost is the blockchain network fee (gas), lowest on Base.
+- Chains: Base, Ethereum, Solana, TON (testnets: Base Sepolia, Ethereum Sepolia).
+- Tokens: USDC, USDT.
+- Wallets: WalletConnect, MetaMask, Phantom, Tonkeeper, or QR code / copied address.
+- Custody: none. Settlement wallets belong to the merchant (see GET /api/config).
+
+## Integration (for developers and agents integrating a service)
+
+API base: https://crypto-payments.agentpod.agentlabs.cc
+Auth: header `x-api-key: <key>` on all /v1 endpoints. API keys and checkout secrets are issued on request today; self-serve onboarding is in development.
+
+Endpoints:
+- POST /v1/customers, GET /v1/customers, GET /v1/customers/:id
+- POST /v1/invoices, GET /v1/invoices, GET /v1/invoices/:id, POST /v1/invoices/:id/line_items, POST /v1/invoices/:id/finalize, POST /v1/invoices/:id/void
+- POST /v1/payment_intents, GET /v1/payment_intents, GET /v1/payment_intents/:id, POST /v1/payment_intents/:id/confirm (body: tx_hash, chain_id, token)
+- POST /v1/checkout/sessions (body: amount, customer_id?, invoice_id?, payment_intent_id?, plan_id?, success_url, cancel_url, callback_url) → returns a session with a hosted checkout `url`
+- GET /v1/checkout/sessions/:id
+- GET /v1/events — webhook event log (type filter supported)
+- GET /api/config — public: chains, token contract addresses, prices, settlement wallets
+- POST /api/payment — submit { txHash, chainId, token, idType ("tg" | "email"), uid, plan?, amountUsd?, callbackUrl?, exp?, sig? } for on-chain verification
+
+Hosted checkout link format: https://pay.agentlabs.cc/pay?uid=<user id>&plan=<plan id>&exp=<unix expiry>&sig=<hmac>
+- `sig` is HMAC-SHA256 (hex) over the canonical string of sorted `key=value` lines (keys: plan or topup when present, uid, idtype=tg, amountUsd when present, exp, callback when present, tenantType/tenant, vmp, hostType, deploymentType when present), keyed by the merchant checkout secret. Reference implementation: `verifyCheckoutIntent` in the open-source backend (src/server.ts).
+- On verified payment, the merchant `callback_url` receives an HMAC-signed POST (header `X-Signature`, HMAC-SHA256 with the callback secret).
+
+Embed snippet (browser): <script src="https://pay.agentlabs.cc/agentlabs-pay.js"></script>, then AgentLabsPay.checkout({ url }) opens the hosted checkout. The checkout secret must never appear in browser code.
+
+## For AI agents paying a service
+
+An agent pays a Pay by AgentLabs merchant the same way a server does:
+1. Create a payment intent or checkout session via the API above (or receive a signed checkout URL from the merchant).
+2. Pay the hosted checkout (wallet) or send the exact token amount to the settlement wallet from GET /api/config and confirm with POST /v1/payment_intents/:id/confirm (tx_hash) or POST /api/payment.
+3. Confirm the outcome via GET /v1/payment_intents/:id or GET /v1/events — a payment counts when it verifies on-chain.
+
+A dedicated MCP server for agent payments is in development (tracked in https://github.com/VibeTechnologies/AgentPod/issues/6440). Until it ships, this file is the machine-readable contract.
+
+## Positioning
+
+Pay by AgentLabs is a free, open-source alternative to Coinbase Pay and Binance Pay for accepting crypto payments and crypto subscriptions without intermediary fees.
