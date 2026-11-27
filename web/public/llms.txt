@@ -30,6 +30,7 @@ Endpoints:
 - GET /v1/checkout/sessions/:id
 - GET /v1/events — webhook event log (type filter supported)
 - GET /api/config — public: chains, token contract addresses, prices, settlement wallets
+- POST /x402/checkout — x402-payable route (no API key; the payment is the authorization — see the x402 section below)
 - POST /api/payment — submit { txHash, chainId, token, idType ("tg" | "email"), uid, plan?, amountUsd?, callbackUrl?, exp?, sig? } for on-chain verification
 
 Hosted checkout link format: https://pay.agentlabs.cc/pay?uid=<user id>&plan=<plan id>&exp=<unix expiry>&sig=<hmac>
@@ -46,6 +47,14 @@ An agent pays a Pay by AgentLabs merchant the same way a server does:
 3. Confirm the outcome via GET /v1/payment_intents/:id or GET /v1/events — a payment counts when it verifies on-chain.
 
 A dedicated MCP server for agent payments ships in the repo (the mcp/ package of dzianisv/CryptoPayments; tracked in https://github.com/VibeTechnologies/AgentPod/issues/6440). This file remains the machine-readable contract.
+
+### x402 (HTTP 402 payments)
+
+Pay by AgentLabs supports x402 v2 (`exact` scheme, EIP-3009, USDC):
+- POST /x402/checkout on the API server (https://crypto-payments.agentpod.agentlabs.cc) — fixed price 10000 atomic (0.01 USDC) buys creation of a hosted checkout session. Unpaid → 402 with a v2 PaymentRequired object (JSON body + base64 `PAYMENT-REQUIRED` header). Pay by retrying with the base64 payment payload in `PAYMENT-SIGNATURE` (the v1 `X-PAYMENT` header is also accepted; the end-to-end proof used v2). Success → 200 checkout-session JSON + `PAYMENT-RESPONSE` receipt header (settlement). Settlement is verified and broadcast by the public facilitator (https://x402.org/facilitator) BEFORE any object is created; the payer signs an EIP-712 TransferWithAuthorization and pays no gas. On settlement the server records a paid payment intent and an `x402.payment.settled` event (GET /v1/events).
+- MCP tools (mcp/ package): `get_x402_payment_requirements` (inspect a 402 without paying), `pay_x402_resource` (pay + retry end-to-end), `x402_wallet_info` (payer address/balance). Payer key via env `AGENTLABS_PAY_X402_PRIVATE_KEY` only; per-payment cap `AGENTLABS_PAY_X402_MAX_AMOUNT_ATOMIC` (default 1000000 = 1 USDC) — a requirement above the cap is refused, never signed.
+- Network: Base Sepolia (eip155:84532), USDC 0x036CbD53842c5426634e7929541eC2318f3dCF7e — testnet, proven end-to-end 2026-11-27 (settlement tx 0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0, https://sepolia.basescan.org/tx/0x3efc6bf1663ce884800d8654b851e18c13f49f981734bccf5bee30440e9e47c0). The route ships in the API server behind X402_ENABLED (default off); production enablement is in progress. Base mainnet is config-only and fail-closed (requires a CDP facilitator key, not provisioned) — not enabled.
+
 
 ## MCP server (agentlabs-pay-mcp)
 
