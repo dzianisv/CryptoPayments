@@ -4,7 +4,7 @@ import Link from "next/link";
 import { CodeWindow, type CodeTab } from "@/components/sdk/code-window";
 
 const REPO_URL = "https://github.com/dzianisv/CryptoPayments";
-const API_BASE = "https://crypto-payments.agentpod.agentlabs.cc";
+const API_BASE = "https://pay.agentlabs.cc";
 
 export function buildSdkMetadata(url: string): Metadata {
   return {

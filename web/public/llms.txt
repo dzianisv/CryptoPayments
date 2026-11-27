@@ -19,7 +19,7 @@
 
 ## Integration (for developers and agents integrating a service)
 
-API base: https://crypto-payments.agentpod.agentlabs.cc
+API base: https://pay.agentlabs.cc
 Auth: header `x-api-key: <key>` on all /v1 endpoints. API keys and checkout secrets are issued on request today; self-serve onboarding is in development.
 
 Endpoints:
