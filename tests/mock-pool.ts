@@ -10,6 +10,9 @@
 // - INSERT generates `id` (uuid-N) + created_at/updated_at, enforces the two
 //   UNIQUE constraints the schema carries ((tx_hash, chain_id) on
 //   payment_intents, (id_type, uid) on customers) by throwing like pg does.
+// - INSERT into payment_intents / checkout_sessions rejects a non-integer
+//   `amount`, mirroring the int4 column in the real schema (a float dollar
+//   amount like 0.01 must throw here exactly as Postgres throws).
 // - UPDATE bumps updated_at, like the schema's update_updated_at() trigger.
 // - Timestamps are ISO strings, like the old PostgREST responses.
 import type { DB } from "../src/db.js";
@@ -124,6 +127,15 @@ export function createMockPool(): DB {
       cols.forEach((c, i) => {
         row[c] = vals[i];
       });
+      if (
+        (table === "payment_intents" || table === "checkout_sessions") &&
+        "amount" in row &&
+        row.amount !== null &&
+        row.amount !== undefined &&
+        !(typeof row.amount === "number" && Number.isInteger(row.amount))
+      ) {
+        throw new Error(`invalid input syntax for type integer: "${String(row.amount)}"`);
+      }
       if (table === "payment_intents" && row.tx_hash) {
         const dup = stores[table].find(
           (r) => r.tx_hash === row.tx_hash && r.chain_id === row.chain_id,

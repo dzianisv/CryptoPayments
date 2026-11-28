@@ -134,6 +134,9 @@ export interface Eip3009Authorization {
 export interface NormalizedPayment {
   version: 1 | 2;
   payer: string;
+  /** EIP-3009 authorization nonce — the reconciliation handle for a settled
+   *  payment whose post-settle recording fails. */
+  nonce: string;
   /** Body for the facilitator's /verify and /settle (identical shape). */
   facilitatorBody: {
     x402Version: 1 | 2;
@@ -220,6 +223,7 @@ export function normalizePaymentHeader(
     return {
       version: 2,
       payer: authorization.from,
+      nonce: authorization.nonce,
       facilitatorBody: {
         x402Version: 2,
         paymentPayload: payload,
@@ -235,6 +239,7 @@ export function normalizePaymentHeader(
     return {
       version: 1,
       payer: authorization.from,
+      nonce: authorization.nonce,
       facilitatorBody: {
         x402Version: 1,
         paymentPayload: payload,
