@@ -215,7 +215,8 @@ describe("POST /x402/checkout", () => {
     const session = await res.json();
     expect(session.status).toBe("open");
     expect(session.url).toContain(`/checkout/${session.stripe_id}`);
-    expect(session.amount).toBeCloseTo(0.01);
+    // amount is integer cents at the DB boundary (0.01 USD = 1 cent).
+    expect(session.amount).toBe(1);
 
     // The payment intent carries the settlement.
     const piRes = await app.request(

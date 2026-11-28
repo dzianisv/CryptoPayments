@@ -687,7 +687,10 @@ export function createApp(injectedDb?: DB) {
     }
 
     const net = x402Network(config);
-    const amount = x402PriceUsd(config);
+    // DB amount columns are integer CENTS (int4) — convert the dollar price
+    // once, here at the boundary. Passing the raw float (0.01) made Postgres
+    // throw after the on-chain settle had already succeeded (AgentPod #6451).
+    const amountCents = Math.round(x402PriceUsd(config) * 100);
     const payer = settle.payer ?? verify.payer ?? payment.payer;
     const metadata: Record<string, unknown> = {
       ...(body.metadata ?? {}),
@@ -698,46 +701,80 @@ export function createApp(injectedDb?: DB) {
       facilitator: config.x402.facilitatorUrl,
     };
 
-    const pi = await createPaymentIntent(appDb, {
-      amount,
-      chainId: net.chainKey,
-      token: "usdc",
-      planId: body.plan_id,
-      description: "x402 checkout",
-      metadata,
-    });
-    await updatePaymentIntentStatus(appDb, pi.stripe_id, "succeeded", {
-      txHash: settle.transaction,
-      chainId: net.chainKey,
-      token: "usdc",
-      fromAddress: payer,
-      toAddress: x402PayTo(config),
-      amountRaw: config.x402.priceAtomic,
-    });
-    const session = await createCheckoutSession(
-      appDb,
-      {
-        paymentIntentId: pi.stripe_id,
-        planId: body.plan_id,
-        amount,
-        metadata,
-      },
-      config.baseUrl,
-    );
-    await createWebhookEvent(appDb, "x402.payment.settled", {
-      payment_intent: pi.stripe_id,
-      checkout_session: session.stripe_id,
-      transaction: settle.transaction,
-      network: config.x402.network,
-      payer,
-    });
-
+    // The settle already moved money on-chain. A failure recording it must
+    // never surface as a bare 500 stranding the payment: log the
+    // reconciliation handles (settlement tx + authorization nonce) and hand
+    // the caller the tx + receipt with a 502.
     const receipt = b64EncodeJson(
       buildSettlementReceipt(config, settle, payer),
     );
-    c.header("PAYMENT-RESPONSE", receipt);
-    if (payment.version === 1) c.header("X-PAYMENT-RESPONSE", receipt);
-    return c.json(session);
+    let step = "create_payment_intent";
+    try {
+      const pi = await createPaymentIntent(appDb, {
+        amount: amountCents,
+        chainId: net.chainKey,
+        token: "usdc",
+        planId: body.plan_id,
+        description: "x402 checkout",
+        metadata,
+      });
+      step = "update_payment_intent_status";
+      await updatePaymentIntentStatus(appDb, pi.stripe_id, "succeeded", {
+        txHash: settle.transaction,
+        chainId: net.chainKey,
+        token: "usdc",
+        fromAddress: payer,
+        toAddress: x402PayTo(config),
+        amountRaw: config.x402.priceAtomic,
+      });
+      step = "create_checkout_session";
+      const session = await createCheckoutSession(
+        appDb,
+        {
+          paymentIntentId: pi.stripe_id,
+          planId: body.plan_id,
+          amount: amountCents,
+          metadata,
+        },
+        config.baseUrl,
+      );
+      step = "create_webhook_event";
+      await createWebhookEvent(appDb, "x402.payment.settled", {
+        payment_intent: pi.stripe_id,
+        checkout_session: session.stripe_id,
+        transaction: settle.transaction,
+        network: config.x402.network,
+        payer,
+      });
+
+      c.header("PAYMENT-RESPONSE", receipt);
+      if (payment.version === 1) c.header("X-PAYMENT-RESPONSE", receipt);
+      return c.json(session);
+    } catch (err) {
+      console.error(
+        "x402 settlement_record_failed:",
+        JSON.stringify({
+          step,
+          transaction: settle.transaction,
+          nonce: payment.nonce,
+          payer,
+          network: config.x402.network,
+          priceAtomic: config.x402.priceAtomic,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      c.header("PAYMENT-RESPONSE", receipt);
+      if (payment.version === 1) c.header("X-PAYMENT-RESPONSE", receipt);
+      return c.json(
+        {
+          error: "settlement_record_failed",
+          transaction: settle.transaction,
+          network: config.x402.network,
+          payer,
+        },
+        502,
+      );
+    }
   });
 
   // ── Webhook Events ─────────────────────────────────────────────────────────
